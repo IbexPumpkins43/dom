@@ -110,7 +110,7 @@ Chats, models and settings live in the user-data folder, so uninstalling or upgr
 
 Run with `DOM_DEV=1 uv run python -m dom` after fetching the test assets.
 
-1. **Models are listed.** Open the model picker at the top. Both `Qwen3.5-0.8B-Q4_K_M` and
+1. **Models are listed.** Open the model picker under the message box. Both `Qwen3.5-0.8B-Q4_K_M` and
    `Qwen3.5-0.8B-Q8_0` are there, marked "not loaded".
 2. **Loading and switching.** Pick `Qwen3.5-0.8B-Q4_K_M`. It shows "loading…", then "ready", and
    the message box becomes usable. Now pick `Qwen3.5-0.8B-Q8_0`: it goes loading → ready, and

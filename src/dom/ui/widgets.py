@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from dom.domain import ModelStatus, Role
 from dom.hardware.models import GIB
+from dom.ui.assets import render_logo
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -41,6 +42,8 @@ REPLY_REDRAW_MS = 50
 INPUT_MAX_LINES = 8
 SIDEBAR_WIDTH = 260
 USAGE_BAR_HEIGHT = 4
+LOGO_SIZE = 180
+LOGO_OPACITY = 0.16
 USAGE_HIGH_PERCENT = 85
 MODEL_PICKER_MIN_WIDTH = 220
 CHAT_MAX_WIDTH = 860
@@ -244,6 +247,33 @@ class ChatArea(QScrollArea):
         self.verticalScrollBar().rangeChanged.connect(self._on_range_changed)
         self.verticalScrollBar().valueChanged.connect(self._on_scrolled)
 
+        # A faint logo in the middle of an empty (new) chat; it never takes clicks.
+        self._bubbles = 0
+        self._logo = QLabel(self.viewport())
+        self._logo.setObjectName("chatLogo")
+        self._logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._logo.setPixmap(
+            render_logo(
+                LOGO_SIZE, opacity=LOGO_OPACITY, device_pixel_ratio=self.devicePixelRatioF()
+            )
+        )
+        self._logo.resize(LOGO_SIZE, LOGO_SIZE)
+        self._logo.raise_()  # above the chat canvas; it is only shown while the chat is empty
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
+        """Keep the logo centred in the visible area."""
+        super().resizeEvent(event)
+        self._place_logo()
+
+    def logo_visible(self) -> bool:
+        """True while the empty-chat logo is shown."""
+        return self._logo.isVisibleTo(self)
+
+    def _place_logo(self) -> None:
+        viewport = self.viewport()
+        self._logo.move((viewport.width() - LOGO_SIZE) // 2, (viewport.height() - LOGO_SIZE) // 2)
+        self._logo.setVisible(self._bubbles == 0)
+
     def set_notice(self, message: str | None) -> None:
         """Show a hint in the empty chat, or hide it."""
         self._notice.setText(message or "")
@@ -257,9 +287,11 @@ class ChatArea(QScrollArea):
             item = self._layout.takeAt(1)
             if item is not None and (widget := item.widget()) is not None:
                 widget.deleteLater()
+        self._bubbles = 0
         for message in messages:
             self._add_bubble(MessageBubble(message.role, message.content, message.reasoning or ""))
         self._follow = True
+        self._place_logo()
 
     def begin_reply(self) -> None:
         """Add an empty assistant bubble that will fill as the reply streams."""
@@ -297,6 +329,8 @@ class ChatArea(QScrollArea):
         else:
             row_layout.addWidget(bubble)
         self._layout.insertWidget(self._layout.count() - 1, row)
+        self._bubbles += 1
+        self._place_logo()
 
     def _on_scrolled(self, value: int) -> None:
         bar = self.verticalScrollBar()

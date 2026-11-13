@@ -103,6 +103,7 @@ def run_pyinstaller() -> Path:
         "--name", APP_NAME,
         "--paths", str(ROOT / "src"),
         "--collect-submodules", "dom",
+        "--collect-data", "dom",  # the logo and other assets
         "--distpath", str(BUILD / "pyinstaller"),
         "--workpath", str(BUILD / "work"),
         "--specpath", str(BUILD),

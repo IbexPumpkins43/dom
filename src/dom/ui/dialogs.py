@@ -12,6 +12,8 @@ from dom.ui.theme import BRASA
 from dom.ui.titlebar import TitleBar, WindowFrame
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from dom.ui.theme import Base16
 
 _MESSAGE_WIDTH = 420
@@ -47,6 +49,16 @@ class FramedDialog(QDialog):
     def content(self) -> QWidget:
         """The area below the title bar."""
         return self._content
+
+
+@dataclass(frozen=True, slots=True)
+class Question:
+    """A yes/no question for ``ask``."""
+
+    title: str
+    text: str
+    confirm_label: str
+    danger: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,14 +101,31 @@ class _MessageDialog(FramedDialog):
         self.cancel_button.setFocus()
 
 
-def confirm(
-    parent: QWidget | None, title: str, text: str, confirm_label: str, *, danger: bool = False
-) -> bool:
-    """Ask a yes/no question in a framed dialog; True if the user confirmed."""
-    dialog = _MessageDialog(parent, title, text, _Buttons("Cancel", confirm_label, danger))
-    return dialog.exec() == QDialog.DialogCode.Accepted
+def ask(
+    parent: QWidget,
+    question: Question,
+    on_confirm: Callable[[], None],
+) -> QDialog:
+    """Ask a yes/no question in a framed, window-modal dialog; ``on_confirm`` runs on yes.
+
+    Non-blocking (``open()``, not ``exec()``): a nested event loop would let asyncio tasks run
+    re-entrantly under qasync. Returns the dialog (already shown).
+    """
+    dialog = _MessageDialog(
+        parent,
+        question.title,
+        question.text,
+        _Buttons("Cancel", question.confirm_label, question.danger),
+    )
+    dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dialog.accepted.connect(on_confirm)
+    dialog.open()
+    return dialog
 
 
 def show_message(parent: QWidget | None, title: str, text: str) -> None:
-    """Show a message in a framed dialog and wait until it is closed."""
+    """Show a message in a framed dialog and wait until it is closed.
+
+    Blocking: only for use before the asyncio event loop runs (e.g. a startup error).
+    """
     _MessageDialog(parent, title, text, _Buttons("OK")).exec()

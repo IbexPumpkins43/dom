@@ -400,7 +400,7 @@ class ChatController:
         if not self._models:
             return "No models yet. Click “Get models” on the left to download one."
         if self._selected_model is None:
-            return "Pick a model at the top to start chatting."
+            return "Pick a model below to start chatting."
         if self.loaded_model is None:
             return "Loading the model…"
         return None

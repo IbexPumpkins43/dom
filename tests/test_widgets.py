@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QPalette, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -17,14 +17,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dom.domain import Conversation, ModelInfo, ModelStatus
+from dom.domain import Conversation, Message, ModelInfo, ModelStatus, Role
 from dom.hardware import MemoryStatus, SystemUsage
 from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
-from dom.ui.dialogs import FramedDialog, confirm
+from dom.ui.assets import logo_svg, render_logo
+from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.theme import BRASA, apply_theme
 from dom.ui.titlebar import TitleBar, edges_at
-from dom.ui.widgets import ModelPicker, Sidebar, UsagePanel
+from dom.ui.widgets import ChatArea, ModelPicker, Sidebar, UsagePanel
 
 
 @pytest.fixture(scope="module")
@@ -155,18 +156,44 @@ def test_framed_dialog_uses_dom_title_bar(qt_app: QApplication) -> None:
     assert qt_app is not None
 
 
-@pytest.mark.parametrize(("press", "expected"), [("cancel", False), ("confirm", True)])
-def test_confirm_dialog(qt_app: QApplication, press: str, expected: bool) -> None:
-    def answer() -> None:
-        dialog = qt_app.activeModalWidget()
-        assert isinstance(dialog, FramedDialog)
-        name = "dangerButton" if press == "confirm" else None
-        buttons = dialog.findChildren(QPushButton)
-        target = next(
-            b for b in buttons if (b.objectName() == name if name else b.text() == "Cancel")
-        )
-        assert next(b for b in buttons if b.text() == "Cancel").isDefault()
-        target.click()
+@pytest.mark.parametrize(("press", "expected"), [("Cancel", []), ("Delete", ["yes"])])
+def test_ask_dialog(qt_app: QApplication, press: str, expected: list[str]) -> None:
+    parent = QWidget()
+    parent.show()
+    answers: list[str] = []
+    dialog = ask(
+        parent,
+        Question("Delete chat", "Delete it?", "Delete", danger=True),
+        lambda: answers.append("yes"),
+    )
+    assert dialog.isVisible()
+    assert dialog.isModal()
+    buttons = dialog.findChildren(QPushButton)
+    assert next(b for b in buttons if b.text() == "Cancel").isDefault()
+    next(b for b in buttons if b.text() == press).click()
+    assert answers == expected
+    assert not dialog.isVisible()
+    assert qt_app is not None
 
-    QTimer.singleShot(0, answer)
-    assert confirm(None, "Delete chat", "Delete it?", "Delete", danger=True) is expected
+
+def test_logo_is_packaged_and_renders(qt_app: QApplication) -> None:
+    assert b"<svg" in logo_svg()
+    pixmap = render_logo(64, opacity=0.5, device_pixel_ratio=2.0)
+    assert pixmap.width() == 128  # noqa: PLR2004 -- 64 px at 2x
+    assert not pixmap.toImage().isNull()
+    assert qt_app is not None
+
+
+def test_logo_shows_only_on_empty_chats(qt_app: QApplication) -> None:
+    area = ChatArea()
+    area.resize(600, 400)
+    area.show()
+    assert area.logo_visible()
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    area.set_messages([Message("m1", "c1", Role.USER, "hi", now)])
+    assert not area.logo_visible()
+    area.set_messages([])
+    assert area.logo_visible()
+    area.begin_reply()
+    assert not area.logo_visible()
+    assert qt_app is not None

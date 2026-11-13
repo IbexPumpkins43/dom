@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- dom logo: an ember in a hearth ("dom" from Latin domus, home). Colours: base16 Brasa. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>dom</title>
+  <defs>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F0B23A"/>
+      <stop offset="0.55" stop-color="#FF7A4D"/>
+      <stop offset="1" stop-color="#F2685A"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBEAD8"/>
+      <stop offset="1" stop-color="#F0B23A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0" stop-color="#FF7A4D" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FF7A4D" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- hearth: an arched doorway -->
+  <path d="M44 236 V124 A84 84 0 0 1 212 124 V236"
+        fill="none" stroke="#7A6150" stroke-width="10" stroke-linecap="round"/>
+  <path d="M30 236 H226" stroke="#7A6150" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- warm glow behind the flame -->
+  <circle cx="128" cy="168" r="76" fill="url(#glow)"/>
+
+  <!-- outer flame -->
+  <path d="M128 52
+           C 146 86, 182 106, 182 156
+           C 182 192, 158 216, 128 216
+           C 98 216, 74 192, 74 156
+           C 74 128, 90 112, 98 92
+           C 104 112, 112 122, 120 126
+           C 116 100, 118 76, 128 52 Z"
+        fill="url(#flame)"/>
+
+  <!-- inner flame -->
+  <path d="M128 112
+           C 138 132, 158 142, 158 168
+           C 158 188, 145 200, 128 200
+           C 111 200, 98 188, 98 168
+           C 98 152, 108 144, 112 132
+           C 116 144, 121 150, 126 152
+           C 124 138, 124 124, 128 112 Z"
+        fill="url(#heart)"/>
+
+  <!-- sparks -->
+  <circle cx="176" cy="74" r="5" fill="#F0B23A"/>
+  <circle cx="190" cy="104" r="3.5" fill="#FF7A4D"/>
+  <circle cx="80" cy="70" r="4" fill="#F0B23A"/>
+</svg>

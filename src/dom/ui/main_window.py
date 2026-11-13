@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from dom.ui.controller import spawn
-from dom.ui.dialogs import confirm
+from dom.ui.dialogs import Question, ask
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.protocols import ServerState
 from dom.ui.theme import BRASA
@@ -312,14 +312,13 @@ class MainWindow(QMainWindow):
         controller = self._controller
         if controller is None:
             return
-        if confirm(
-            self,
+        question = Question(
             "Delete chat",
             f"Delete “{title or 'this chat'}”?\n\nThis cannot be undone.",
             "Delete",
             danger=True,
-        ):
-            self._run(controller.delete_conversation(conversation_id))
+        )
+        ask(self, question, lambda: self._run(controller.delete_conversation(conversation_id)))
 
     def _on_banner_action(self) -> None:
         if self._controller is None:
