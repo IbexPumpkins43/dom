@@ -170,7 +170,12 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #chatPane, #chatArea, #chatCanvas {{ background: {t.base00}; }}
 #notice {{ color: {t.base04}; font-size: 15px; padding: 60px 20px; }}
 #userBubble {{ background: {t.base02}; border: none; border-radius: 6px; color: {t.base06}; }}
-#assistantBubble {{ background: transparent; color: {t.base05}; }}
+#assistantBubble {{
+    background: {t.base01};
+    border: 1px solid {t.base02};
+    border-radius: 6px;
+    color: {t.base05};
+}}
 #thinkingToggle {{
     border: none;
     color: {t.base04};
