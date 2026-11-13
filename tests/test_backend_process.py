@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from dom.backend import LlamaServerProcess, ServerConfig, ServerStartError, build_command
+from dom.backend.presets import PresetFile
 from dom.backend.process import build_env, pick_free_port
 from dom.config import (
     InferenceSettings,
@@ -19,22 +20,23 @@ from dom.config.binary import server_executable_name
 
 
 def test_default_settings_only_override_what_is_broken() -> None:
-    assert InferenceSettings().to_server_args() == [
-        "--ctx-size",
-        "8192",
-        "--reasoning-budget",
-        "512",
+    assert InferenceSettings().to_preset_items() == [
+        ("ctx-size", "8192"),
+        ("reasoning-budget", "512"),
     ]
 
 
-def test_settings_emit_flags_only_for_set_values() -> None:
-    settings = InferenceSettings(ctx_size=None, reasoning_budget=None, temperature=0.7, top_k=20)
-    assert settings.to_server_args() == ["--temp", "0.7", "--top-k", "20"]
+def test_settings_emit_entries_only_for_set_values() -> None:
+    settings = InferenceSettings(
+        ctx_size=None, reasoning_budget=None, device="none", temperature=0.7, top_k=20
+    )
+    assert settings.to_preset_items() == [("device", "none"), ("temp", "0.7"), ("top-k", "20")]
 
 
 def test_build_command_uses_router_mode(tmp_path: Path) -> None:
     binary = tmp_path / "llama-server"
-    command = build_command(binary, tmp_path / "models", 4321, InferenceSettings(ctx_size=1024))
+    presets = tmp_path / "presets.ini"
+    command = build_command(binary, tmp_path / "models", 4321, presets)
     assert command[0] == str(binary)
     assert "-m" not in command
     assert "--model" not in command
@@ -46,7 +48,10 @@ def test_build_command_uses_router_mode(tmp_path: Path) -> None:
     assert "--models-max 1" in joined
     assert "--offline" in command
     assert "--no-webui" in command
-    assert "--ctx-size 1024" in joined
+    assert f"--models-preset {presets.resolve()}" in joined
+    assert "--models-memory-margin 1024" in joined
+    # Inference settings live in the presets file: command-line flags would override it.
+    assert "--ctx-size" not in command
 
 
 def test_build_env_strips_llama_vars_and_sets_key_and_cache(tmp_path: Path) -> None:
@@ -124,7 +129,7 @@ def _config(tmp_path: Path, binary: Path) -> ServerConfig:
         models_dir=tmp_path / "models",
         cache_dir=tmp_path / "cache",
         log_path=tmp_path / "logs" / "llama-server.log",
-        settings=InferenceSettings(),
+        presets=PresetFile(tmp_path / "presets.ini", InferenceSettings()),
         startup_timeout=10.0,
     )
 

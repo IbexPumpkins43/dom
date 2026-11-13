@@ -70,6 +70,48 @@ class ChatDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryUse:
+    """Bytes a model needs at a given context size, split by where they live."""
+
+    n_ctx: int
+    device_bytes: int
+    host_bytes: int
+
+    @property
+    def total_bytes(self) -> int:
+        """Device plus host bytes."""
+        return self.device_bytes + self.host_bytes
+
+
+@dataclass(frozen=True, slots=True)
+class ModelMemory:
+    """llama-server's memory measurement of a model at two context sizes."""
+
+    low: MemoryUse
+    high: MemoryUse
+
+    @property
+    def can_extrapolate(self) -> bool:
+        """True if the two points differ, so memory per context token is known."""
+        return self.high.n_ctx > self.low.n_ctx
+
+    def at(self, n_ctx: int) -> MemoryUse:
+        """Estimated memory at ``n_ctx`` tokens (linear between and beyond the two points)."""
+        if not self.can_extrapolate:
+            return self.low
+        span = self.high.n_ctx - self.low.n_ctx
+
+        def interpolate(low: int, high: int) -> int:
+            return round(low + (high - low) * (n_ctx - self.low.n_ctx) / span)
+
+        return MemoryUse(
+            n_ctx=n_ctx,
+            device_bytes=interpolate(self.low.device_bytes, self.high.device_bytes),
+            host_bytes=interpolate(self.low.host_bytes, self.high.host_bytes),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ModelInfo:
     """A local GGUF model known to the inference server."""
 
@@ -77,3 +119,5 @@ class ModelInfo:
     status: ModelStatus
     path: str | None = None
     exit_code: int | None = None
+    context_length: int | None = None
+    memory: ModelMemory | None = None

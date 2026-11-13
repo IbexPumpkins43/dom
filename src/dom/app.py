@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
 from dom.backend.errors import ServerStartError
 from dom.backend.lazy import LazyInferenceService
+from dom.backend.presets import PresetFile
 from dom.config import (
     AppPaths,
     InferenceSettings,
@@ -72,7 +73,7 @@ def build_service(paths: AppPaths, settings: InferenceSettings) -> InferenceServ
                 models_dir=paths.models_dir,
                 cache_dir=paths.llama_cache_dir,
                 log_path=paths.log_dir / "llama-server.log",
-                settings=settings,
+                presets=PresetFile(paths.data_dir / "presets.ini", settings),
             )
         )
         return LlamaInferenceService(process)

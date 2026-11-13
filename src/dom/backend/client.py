@@ -17,7 +17,7 @@ from dom.backend.errors import (
     ModelNotFoundError,
     ServerUnavailableError,
 )
-from dom.domain import ChatDelta, ModelInfo, ModelStatus
+from dom.domain import ChatDelta, MemoryUse, ModelInfo, ModelMemory, ModelStatus
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -75,6 +75,39 @@ def parse_model_status(status: object) -> tuple[ModelStatus, int | None]:
             return ModelStatus.UNLOADED, None
 
 
+def _int(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _parse_memory_use(point: object) -> MemoryUse | None:
+    if not _is_object(point) or not isinstance(n_ctx := point.get("n_ctx"), int):
+        return None
+    devices = point.get("devices")
+    if not _is_array(devices):
+        return None
+    device_bytes = host_bytes = 0
+    for entry in devices:
+        if not _is_object(entry):
+            continue
+        used = _int(entry.get("model")) + _int(entry.get("context")) + _int(entry.get("compute"))
+        if entry.get("kind") == "device":
+            device_bytes += used
+        else:  # "host" and host-side "buffer_type" entries (e.g. CPU_REPACK) live in RAM
+            host_bytes += used
+    return MemoryUse(n_ctx=n_ctx, device_bytes=device_bytes, host_bytes=host_bytes)
+
+
+def parse_model_memory(memory: object) -> ModelMemory | None:
+    """Parse the router's ``memory`` field; ``None`` unless it is fully measured."""
+    if not _is_object(memory) or memory.get("status") != "measured":
+        return None
+    low = _parse_memory_use(memory.get("min"))
+    high = _parse_memory_use(memory.get("max"))
+    if low is None or high is None:
+        return None
+    return ModelMemory(low=low, high=high)
+
+
 def parse_models(payload: object) -> list[ModelInfo]:
     """Parse a ``GET /models`` response into models from the models folder."""
     if not _is_object(payload) or not _is_array(data := payload.get("data")):
@@ -87,12 +120,15 @@ def parse_models(payload: object) -> list[ModelInfo]:
         if source is not None and source != MODELS_DIR_SOURCE:
             continue
         status, exit_code = parse_model_status(entry.get("status"))
+        context_length = entry.get("context_length")
         models.append(
             ModelInfo(
                 id=model_id,
                 status=status,
                 path=_str_or_none(entry.get("path")),
                 exit_code=exit_code,
+                context_length=context_length if isinstance(context_length, int) else None,
+                memory=parse_model_memory(entry.get("memory")),
             )
         )
     models.sort(key=lambda m: m.id.lower())
@@ -180,9 +216,12 @@ class LlamaClient:
             return False
         return response.is_success
 
-    async def list_models(self) -> list[ModelInfo]:
-        """Return the models in the models folder with their current status."""
-        response = await self._request("GET", "/models")
+    async def list_models(self, *, reload: bool = False) -> list[ModelInfo]:
+        """Return the models in the models folder with their current status.
+
+        ``reload`` makes the router re-read the models folder and the presets file first.
+        """
+        response = await self._request("GET", "/models?reload=1" if reload else "/models")
         try:
             payload: object = response.json()
         except ValueError as exc:

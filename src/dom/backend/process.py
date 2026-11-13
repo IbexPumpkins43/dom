@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from dom.backend._winjob import KillOnCloseJob
-    from dom.config import InferenceSettings
+    from dom.backend.presets import PresetFile
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +56,17 @@ def pick_free_port(host: str = HOST) -> int:
         return port
 
 
-def build_command(
-    binary: Path, models_dir: Path, port: int, settings: InferenceSettings
-) -> list[str]:
-    """The full llama-server command line (flags checked against b12110 ``--help``)."""
+# With a memory margin set, the router measures every model's memory needs (exposed in
+# GET /models), which automatic tuning relies on. It also keeps this much device memory free.
+MODELS_MEMORY_MARGIN_MIB = 1024
+
+
+def build_command(binary: Path, models_dir: Path, port: int, presets_path: Path) -> list[str]:
+    """The router command line (flags checked against b12110 ``--help``).
+
+    Only router-level flags go here: command-line flags override the presets file, and every
+    inference setting is written there instead (see ``PresetFile``).
+    """
     return [
         str(binary),
         "--host",
@@ -73,7 +80,10 @@ def build_command(
         "1",
         "--offline",
         "--no-webui",
-        *settings.to_server_args(),
+        "--models-preset",
+        str(presets_path.resolve()),
+        "--models-memory-margin",
+        str(MODELS_MEMORY_MARGIN_MIB),
     ]
 
 
@@ -94,7 +104,7 @@ class ServerConfig:
     models_dir: Path
     cache_dir: Path
     log_path: Path
-    settings: InferenceSettings
+    presets: PresetFile
     startup_timeout: float = 60.0
 
 
@@ -109,7 +119,7 @@ class LlamaServerProcess:
         self._models_dir = config.models_dir
         self._cache_dir = config.cache_dir
         self._log_path = config.log_path
-        self._settings = config.settings
+        self._presets = config.presets
         self._startup_timeout = config.startup_timeout
         self._port_picker = port_picker
         self._proc: subprocess.Popen[bytes] | None = None
@@ -152,7 +162,8 @@ class LlamaServerProcess:
     async def _start_once(self) -> ServerEndpoint:
         port = self._port_picker()
         api_key = secrets.token_urlsafe(32)
-        command = build_command(self._binary, self._models_dir, port, self._settings)
+        self._presets.reset()
+        command = build_command(self._binary, self._models_dir, port, self._presets.path)
         env = build_env(self._cache_dir, api_key)
         logger.info("Starting llama-server: %s", " ".join(command))
         self._log_path.parent.mkdir(parents=True, exist_ok=True)

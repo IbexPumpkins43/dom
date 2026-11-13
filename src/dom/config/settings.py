@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-# Context size used instead of llama-server's default. The default (0 = the model's maximum)
-# reserves 262,144 tokens for Qwen3.5 and used about 4 GB of RAM for a 0.8B model on CPU.
+# Fallback context size when automatic tuning has nothing to go on. llama-server's default
+# (0 = the model's maximum) reserved 262,144 tokens for Qwen3.5 and used about 4 GB of RAM for a
+# 0.8B model on CPU, ignoring how much RAM the computer has.
 DEFAULT_CTX_SIZE = 8192
 
 # Thinking-token budget used instead of llama-server's default (unlimited). With no budget the
@@ -17,11 +18,13 @@ DEFAULT_REASONING_BUDGET = 512
 class InferenceSettings:
     """Model runtime and sampling settings passed to ``llama-server``.
 
-    ``None`` means "use llama-server's own default" and emits no flag. Later milestones
-    (automatic tuning) produce instances of this class; nothing else may build flags.
+    ``None`` means "use llama-server's own default" and emits nothing. The values are written to
+    llama-server's presets file (global defaults and one section per model); automatic tuning
+    produces instances of this class and nothing else may build flags.
     """
 
     ctx_size: int | None = DEFAULT_CTX_SIZE
+    device: str | None = None
     gpu_layers: str | None = None
     threads: int | None = None
     n_predict: int | None = None
@@ -32,19 +35,23 @@ class InferenceSettings:
     min_p: float | None = None
     presence_penalty: float | None = None
 
-    def to_server_args(self) -> list[str]:
-        """Return the command-line flags for every setting that is not ``None``."""
-        args: list[str] = []
+    def to_preset_items(self) -> list[tuple[str, str]]:
+        """``(key, value)`` presets-file entries for every setting that is not ``None``.
+
+        Keys are the long command-line flag names without the leading dashes.
+        """
+        items: list[tuple[str, str]] = []
         for field in fields(self):
             value: object = getattr(self, field.name)
             if value is not None:
-                args += [_FLAGS[field.name], str(value)]
-        return args
+                items.append((_FLAGS[field.name].removeprefix("--"), str(value)))
+        return items
 
 
 # Checked against `llama-server --help` for the pinned build (v0.9.0 / b12110).
 _FLAGS: dict[str, str] = {
     "ctx_size": "--ctx-size",
+    "device": "--device",
     "gpu_layers": "--gpu-layers",
     "threads": "--threads",
     "n_predict": "--n-predict",

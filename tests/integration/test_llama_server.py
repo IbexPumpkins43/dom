@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
+from dom.backend.presets import PresetFile
 from dom.config import InferenceSettings
 from dom.config.binary import server_executable_name
 from dom.domain import ChatMessage, ModelStatus, Role
@@ -61,7 +62,7 @@ async def test_real_server_load_chat_and_switch(tmp_path: Path) -> None:
             models_dir=MODELS_DIR,
             cache_dir=tmp_path / "cache",
             log_path=tmp_path / "llama-server.log",
-            settings=InferenceSettings(),
+            presets=PresetFile(tmp_path / "presets.ini", InferenceSettings()),
         )
     )
     service = LlamaInferenceService(process)
