@@ -85,6 +85,18 @@ async def test_selecting_a_model_enables_input(
     assert view.notice is None
 
 
+async def test_loading_reports_progress_and_details(
+    controller: ChatController, view: RecordingView
+) -> None:
+    await _ready(controller)
+    assert view.hardware == "Test OS, 8 CPU cores, 16 GB RAM"
+    assert view.model_details == [
+        "Preparing the model…",
+        "Testing speed…",
+        "Running on Test GPU (GPU) · 32k context",
+    ]
+
+
 async def test_failed_load_shows_error_and_keeps_input_disabled(
     controller: ChatController, service: FakeInferenceService, view: RecordingView
 ) -> None:

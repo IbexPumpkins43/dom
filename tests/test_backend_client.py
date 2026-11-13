@@ -398,3 +398,20 @@ async def test_api_key_is_sent(router: FakeRouter) -> None:
         await unauthenticated.list_models()
     assert info.value.status_code == 401  # noqa: PLR2004
     await unauthenticated.aclose()
+
+
+async def test_load_that_never_starts_raises(router: FakeRouter) -> None:
+    def ignore_loads(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/models/load":
+            return httpx.Response(200, json={"success": True})  # accepted, but nothing happens
+        return router.handler(request)
+
+    client = LlamaClient(
+        "http://test",
+        API_KEY,
+        transport=httpx.MockTransport(ignore_loads),
+        start_loading_timeout=0.05,
+    )
+    with pytest.raises(ModelLoadError, match="never started loading"):
+        await client.switch_model("Qwen-Q4_K_M", poll_interval=0.01)
+    await client.aclose()

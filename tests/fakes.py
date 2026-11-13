@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from dom.backend.errors import BackendError, ModelLoadError, ServerStartError
-from dom.domain import ChatDelta, ChatMessage, ModelInfo, ModelStatus
+from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo, ModelStatus
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
     from dom.domain import Conversation, Message
     from dom.ui.protocols import ServerState
@@ -40,6 +40,7 @@ class FakeInferenceService:
     _loaded: str | None = None
     _crash: asyncio.Future[int | None] | None = None
     first_token: asyncio.Event = field(default_factory=asyncio.Event)
+    progress_seen: list[str] = field(default_factory=list[str])
     endless_started: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def start(self) -> None:
@@ -71,12 +72,22 @@ class FakeInferenceService:
             for m in self.model_ids
         ]
 
-    async def select_model(self, model_id: str) -> ModelInfo:
+    async def select_model(
+        self, model_id: str, on_progress: Callable[[str], None] | None = None
+    ) -> LoadedModel:
+        if on_progress is not None:
+            on_progress("Testing speed…")
+            self.progress_seen.append("Testing speed…")
         await asyncio.sleep(0)
         if self.load_error is not None:
             raise ModelLoadError(self.load_error)
         self._loaded = model_id
-        return ModelInfo(model_id, ModelStatus.LOADED)
+        return LoadedModel(
+            ModelInfo(model_id, ModelStatus.LOADED), 32768, "Test GPU (GPU)", tuned=True
+        )
+
+    def hardware_summary(self) -> str | None:
+        return "Test OS, 8 CPU cores, 16 GB RAM"
 
     async def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]
@@ -115,6 +126,8 @@ class RecordingView:
     streaming: bool = False
     errors: list[str] = field(default_factory=list[str])
     notice: str | None = None
+    model_details: list[str | None] = field(default_factory=list[str | None])
+    hardware: str | None = None
 
     def show_server_state(self, state: ServerState, message: str | None) -> None:
         self.server_states.append((state, message))
@@ -151,3 +164,9 @@ class RecordingView:
 
     def show_notice(self, message: str | None) -> None:
         self.notice = message
+
+    def show_model_details(self, text: str | None) -> None:
+        self.model_details.append(text)
+
+    def show_hardware(self, summary: str | None) -> None:
+        self.hardware = summary

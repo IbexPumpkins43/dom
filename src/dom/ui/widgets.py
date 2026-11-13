@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -332,11 +333,19 @@ class ModelPicker(QComboBox):
         self._has_placeholder = selected_id is None
         if self._has_placeholder:
             self.addItem("Choose a model…" if models else "No models found", None)
+        items = self.model()
         for model in models:
-            label = f"{_STATUS_DOTS[model.status]}  {model.id}  —  {_STATUS_LABELS[model.status]}"
-            self.addItem(label, model.id)
+            status = _STATUS_LABELS[model.status]
+            if model.unavailable_reason and model.status == ModelStatus.UNLOADED:
+                status = "too large for this computer"
+            self.addItem(f"{_STATUS_DOTS[model.status]}  {model.id}  —  {status}", model.id)
+            index = self.count() - 1
+            if model.unavailable_reason:
+                self.setItemData(index, model.unavailable_reason, Qt.ItemDataRole.ToolTipRole)
+                if model.id != selected_id and isinstance(items, QStandardItemModel):
+                    items.item(index).setEnabled(False)
             if model.id == selected_id:
-                self.setCurrentIndex(self.count() - 1)
+                self.setCurrentIndex(index)
         if self._has_placeholder:
             self.setCurrentIndex(0)
         self.blockSignals(False)

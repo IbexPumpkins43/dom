@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from dom.backend.errors import BackendError
@@ -21,7 +22,12 @@ _GLOBAL_SECTION = "*"
 
 
 def render_presets(defaults: InferenceSettings, models: dict[str, InferenceSettings]) -> str:
-    """The INI text for ``defaults`` (the ``[*]`` section) and per-model sections."""
+    """The INI text for ``defaults`` (the ``[*]`` section) and per-model sections.
+
+    The context size is never set globally: a pinned context makes llama-server measure a
+    model's memory at that one size only, and tuning needs the unpinned measurement.
+    """
+    defaults = replace(defaults, ctx_size=None)
     lines = [f"version = {PRESETS_VERSION}", "", "; Written by dom. Changes will be overwritten."]
     sections = [(_GLOBAL_SECTION, defaults), *sorted(models.items())]
     for name, settings in sections:

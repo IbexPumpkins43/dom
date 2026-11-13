@@ -61,6 +61,8 @@ class MainWindow(QMainWindow):
         self._picker = ModelPicker()
         self._server_label = QLabel()
         self._server_label.setObjectName("serverLabel")
+        self._details_label = QLabel()
+        self._details_label.setObjectName("detailsLabel")
         self._banner = Banner()
         self._chat = ChatArea()
         self._error = QLabel()
@@ -82,6 +84,8 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout(top_bar)
         top.setContentsMargins(16, 10, 16, 10)
         top.addWidget(self._picker)
+        top.addSpacing(12)
+        top.addWidget(self._details_label)
         top.addStretch(1)
         top.addWidget(self._server_label)
 
@@ -199,6 +203,16 @@ class MainWindow(QMainWindow):
     def show_notice(self, message: str | None) -> None:
         """Show or hide the hint in the empty chat area."""
         self._chat.set_notice(message)
+
+    def show_model_details(self, text: str | None) -> None:
+        """Show what the model runs on (or what dom is doing to prepare it)."""
+        self._details_label.setText(text or "")
+
+    def show_hardware(self, summary: str | None) -> None:
+        """Put the detected hardware in tooltips."""
+        tip = f"This computer: {summary}" if summary else ""
+        self._server_label.setToolTip(tip)
+        self._details_label.setToolTip(tip)
 
     # ---- events --------------------------------------------------------------------------
 

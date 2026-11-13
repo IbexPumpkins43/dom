@@ -29,7 +29,7 @@ STYLESHEET = """
 
 #topBar { border-bottom: 1px solid palette(midlight); }
 #modelPicker { padding: 5px 10px; border-radius: 6px; }
-#serverLabel { color: palette(placeholder-text); }
+#serverLabel, #detailsLabel { color: palette(placeholder-text); }
 #serverLabel[state="failed"], #serverLabel[state="crashed"] { color: #d9534f; }
 
 #banner { background: palette(alternate-base); border-bottom: 1px solid palette(mid); }

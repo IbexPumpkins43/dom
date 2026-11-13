@@ -18,7 +18,7 @@ async def test_start_retries_the_factory_until_it_succeeds() -> None:
     attempts: list[int] = []
     real = FakeInferenceService()
 
-    def factory() -> InferenceService:
+    async def factory() -> InferenceService:
         attempts.append(1)
         if len(attempts) == 1:
             raise ServerStartError("llama-server is missing")

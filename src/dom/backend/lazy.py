@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from dom.backend.errors import ServerUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Sequence
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 
     from dom.backend.protocols import InferenceService
-    from dom.domain import ChatDelta, ChatMessage, ModelInfo
+    from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
 
 
 class LazyInferenceService:
@@ -20,7 +20,7 @@ class LazyInferenceService:
     message when the real service cannot be created yet.
     """
 
-    def __init__(self, factory: Callable[[], InferenceService]) -> None:
+    def __init__(self, factory: Callable[[], Awaitable[InferenceService]]) -> None:
         """Remember how to build the real service."""
         self._factory = factory
         self._inner: InferenceService | None = None
@@ -28,7 +28,7 @@ class LazyInferenceService:
     async def start(self) -> None:
         """Build the real service if needed, then start it."""
         if self._inner is None:
-            self._inner = self._factory()
+            self._inner = await self._factory()
         await self._inner.start()
 
     async def stop(self) -> None:
@@ -49,9 +49,15 @@ class LazyInferenceService:
         """The real service's models."""
         return await self._require().list_models()
 
-    async def select_model(self, model_id: str) -> ModelInfo:
+    async def select_model(
+        self, model_id: str, on_progress: Callable[[str], None] | None = None
+    ) -> LoadedModel:
         """Load a model with the real service."""
-        return await self._require().select_model(model_id)
+        return await self._require().select_model(model_id, on_progress)
+
+    def hardware_summary(self) -> str | None:
+        """The real service's hardware summary, once it exists."""
+        return self._inner.hardware_summary() if self._inner is not None else None
 
     def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]

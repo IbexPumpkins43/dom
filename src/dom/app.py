@@ -18,6 +18,7 @@ from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
 from dom.backend.errors import ServerStartError
 from dom.backend.lazy import LazyInferenceService
 from dom.backend.presets import PresetFile
+from dom.backend.service import AutoTuning
 from dom.config import (
     AppPaths,
     InferenceSettings,
@@ -27,11 +28,16 @@ from dom.config import (
     find_server_builds,
     is_dev_mode,
 )
+from dom.hardware import HardwareProbe
+from dom.hardware.probe import read_memory
 from dom.storage import SqliteConversationRepository, StorageError
+from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
 from dom.ui.main_window import MainWindow
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from dom.backend import InferenceService
 
 logger = logging.getLogger("dom")
@@ -56,27 +62,45 @@ def configure_logging(paths: AppPaths) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-def build_service(paths: AppPaths, settings: InferenceSettings) -> InferenceService:
-    """The llama-server service; it locates the binary each time it is (re)started."""
+def _build_version(binary: Path) -> str:
+    try:
+        return (binary.parent / "VERSION").read_text(encoding="utf-8").strip() or str(binary)
+    except OSError:
+        return str(binary)
 
-    def create() -> InferenceService:
+
+def build_service(paths: AppPaths, defaults: InferenceSettings) -> InferenceService:
+    """The llama-server service; on each (re)start it finds the builds and probes hardware."""
+
+    async def create() -> InferenceService:
         try:
             builds = find_server_builds(configured_server_path(), paths.bin_dir)
-            binary = next((b.path for b in builds if b.name == "cpu"), builds[0].path)
         except LlamaServerNotFoundError as exc:
             logger.warning("llama-server not found; searched: %s", ", ".join(exc.searched))
             raise ServerStartError(str(exc)) from exc
+        hardware = await HardwareProbe().detect(builds)
+        binary = hardware.build.path
         logger.info("Using llama-server at %s", binary)
+        presets = PresetFile(paths.data_dir / "presets.ini", defaults)
         process = LlamaServerProcess(
             ServerConfig(
                 binary=binary,
                 models_dir=paths.models_dir,
                 cache_dir=paths.llama_cache_dir,
                 log_path=paths.log_dir / "llama-server.log",
-                presets=PresetFile(paths.data_dir / "presets.ini", settings),
+                presets=presets,
             )
         )
-        return LlamaInferenceService(process)
+        tuning = AutoTuning(
+            hardware=hardware,
+            presets=presets,
+            defaults=defaults,
+            memory_reader=read_memory,
+            bench=LlamaBench(binary.with_name(binary.name.replace("llama-server", "llama-bench"))),
+            bench_cache=BenchmarkCache(paths.data_dir / "benchmarks.json"),
+            build_version=_build_version(binary),
+        )
+        return LlamaInferenceService(process, tuning)
 
     return LazyInferenceService(create)
 

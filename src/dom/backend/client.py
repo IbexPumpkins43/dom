@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, TypeGuard
 
 import httpx
@@ -108,6 +110,16 @@ def parse_model_memory(memory: object) -> ModelMemory | None:
     return ModelMemory(low=low, high=high)
 
 
+def _model_arg(status: object) -> str | None:
+    """The ``--model`` path in the command line the router reports for a model."""
+    if not _is_object(status) or not _is_array(args := status.get("args")):
+        return None
+    for flag, value in itertools.pairwise(args):
+        if flag in ("--model", "-m") and isinstance(value, str):
+            return value
+    return None
+
+
 def parse_models(payload: object) -> list[ModelInfo]:
     """Parse a ``GET /models`` response into models from the models folder."""
     if not _is_object(payload) or not _is_array(data := payload.get("data")):
@@ -121,14 +133,16 @@ def parse_models(payload: object) -> list[ModelInfo]:
             continue
         status, exit_code = parse_model_status(entry.get("status"))
         context_length = entry.get("context_length")
+        memory = entry.get("memory")
         models.append(
             ModelInfo(
                 id=model_id,
                 status=status,
-                path=_str_or_none(entry.get("path")),
+                path=_str_or_none(entry.get("path")) or _model_arg(entry.get("status")),
                 exit_code=exit_code,
                 context_length=context_length if isinstance(context_length, int) else None,
-                memory=parse_model_memory(entry.get("memory")),
+                memory=parse_model_memory(memory),
+                memory_state=_str_or_none(memory.get("status")) if _is_object(memory) else None,
             )
         )
     models.sort(key=lambda m: m.id.lower())
@@ -197,8 +211,15 @@ class LlamaClient:
         base_url: str,
         api_key: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        start_loading_timeout: float = 60.0,
     ) -> None:
-        """Create a client for ``base_url`` (``transport`` lets tests inject a fake)."""
+        """Create a client for ``base_url`` (``transport`` lets tests inject a fake).
+
+        ``start_loading_timeout``: how long a requested model may stay unloaded before it is
+        treated as a failed load (the router may first wait for a memory measurement).
+        """
+        self._start_loading_timeout = start_loading_timeout
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._http = httpx.AsyncClient(
             base_url=base_url, headers=headers, timeout=DEFAULT_TIMEOUT, transport=transport
@@ -269,6 +290,7 @@ class LlamaClient:
         self, model_id: str, wanted: ModelStatus, poll_interval: float
     ) -> ModelInfo:
         saw_loading = False
+        started = time.monotonic()
         while True:
             model = await self.get_model(model_id)
             if model.status == wanted:
@@ -280,12 +302,23 @@ class LlamaClient:
                 saw_loading = True
             elif wanted == ModelStatus.LOADED and saw_loading:
                 raise ModelLoadError(f"The model {model_id} stopped loading unexpectedly.")
+            elif (
+                wanted == ModelStatus.LOADED
+                and time.monotonic() - started > self._start_loading_timeout
+            ):
+                raise ModelLoadError(f"The AI server never started loading {model_id}.")
             await asyncio.sleep(poll_interval)
 
     async def switch_model(self, model_id: str, *, poll_interval: float = 0.25) -> ModelInfo:
         """Unload any other model, then load ``model_id`` and wait until it is ready."""
+        await self.unload_others(model_id, poll_interval=poll_interval)
+        return await self.load_and_wait(model_id, poll_interval=poll_interval)
+
+    async def unload_others(self, model_id: str, *, poll_interval: float = 0.25) -> ModelInfo:
+        """Unload every loaded or loading model except ``model_id``; return its info."""
         models = await self.list_models()
-        if not any(m.id == model_id for m in models):
+        current = next((m for m in models if m.id == model_id), None)
+        if current is None:
             raise ModelNotFoundError(
                 HTTP_NOT_FOUND, f"Model {model_id} is not in the models folder"
             )
@@ -296,7 +329,11 @@ class LlamaClient:
                 await self.wait_for_status(
                     other.id, ModelStatus.UNLOADED, poll_interval=poll_interval
                 )
-        current = next(m for m in models if m.id == model_id)
+        return current
+
+    async def load_and_wait(self, model_id: str, *, poll_interval: float = 0.25) -> ModelInfo:
+        """Load ``model_id`` (if it is not already) and wait until it is ready."""
+        current = await self.get_model(model_id)
         if current.status == ModelStatus.LOADED:
             return current
         if current.status != ModelStatus.LOADING:

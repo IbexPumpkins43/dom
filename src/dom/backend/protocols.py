@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
-    from dom.domain import ChatDelta, ChatMessage, ModelInfo
+    from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
 
 
 class InferenceService(Protocol):
@@ -33,8 +33,17 @@ class InferenceService(Protocol):
         """Return the local models and their status."""
         ...
 
-    async def select_model(self, model_id: str) -> ModelInfo:
-        """Make ``model_id`` the only loaded model and wait until it is ready."""
+    async def select_model(
+        self, model_id: str, on_progress: Callable[[str], None] | None = None
+    ) -> LoadedModel:
+        """Make ``model_id`` the only loaded model, tuned for this computer, and wait for it.
+
+        ``on_progress`` receives plain-English steps (e.g. "Testing speed…") for the UI.
+        """
+        ...
+
+    def hardware_summary(self) -> str | None:
+        """What was detected about this computer, once the server has started."""
         ...
 
     def stream_chat(

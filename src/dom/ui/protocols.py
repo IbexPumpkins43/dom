@@ -62,6 +62,14 @@ class ChatView(Protocol):
         """A one-off plain-English error message."""
         ...
 
+    def show_model_details(self, text: str | None) -> None:
+        """A short line about the model in use or being prepared; ``None`` hides it."""
+        ...
+
+    def show_hardware(self, summary: str | None) -> None:
+        """What was detected about this computer (e.g. for a tooltip)."""
+        ...
+
     def show_notice(self, message: str | None) -> None:
         """A hint in the empty chat area, such as "pick a model"; ``None`` hides it."""
         ...

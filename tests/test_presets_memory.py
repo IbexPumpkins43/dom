@@ -144,7 +144,6 @@ def test_render_presets() -> None:
         "; Written by dom. Changes will be overwritten.",
         "",
         "[*]",
-        "ctx-size = 8192",
         "reasoning-budget = 512",
         "",
         "[a-model]",
@@ -171,3 +170,21 @@ def test_preset_file_writes_and_resets(tmp_path: Path) -> None:
     assert "[m]" in presets.path.read_text(encoding="utf-8")
     presets.reset()
     assert "[m]" not in presets.path.read_text(encoding="utf-8")
+
+
+def test_model_path_comes_from_the_model_argument() -> None:
+    models = parse_models(
+        {
+            "data": [
+                {
+                    "id": "m",
+                    "source": "models_dir",
+                    "status": {
+                        "value": "unloaded",
+                        "args": ["llama-server", "--alias", "m", "--model", "/x/m.gguf"],
+                    },
+                }
+            ]
+        }
+    )
+    assert models[0].path == "/x/m.gguf"

@@ -7,6 +7,17 @@ it over `127.0.0.1` only. No cloud, no telemetry.
 **Milestone 1** is the foundation: a chat window with a model picker, streaming replies rendered
 as Markdown, a Stop button, and chat history that survives restarts.
 
+**Milestone 2a** adds automatic setup: dom detects the computer's RAM, CPU and GPU, runs the GPU
+(Vulkan) build of llama.cpp when a GPU is found, and tunes each model when it is loaded:
+
+- **Context size**: the largest that fits in the memory that is free right now (4k–32k tokens,
+  never more than the model was trained for), based on llama.cpp's own measurement of the model.
+- **CPU or GPU**: a dedicated GPU is always used. On a GPU built into the processor (Intel Iris /
+  Arc, AMD Radeon graphics, Qualcomm Adreno) dom runs a short speed test the first time a model is
+  loaded and keeps whichever is faster; the result is remembered.
+- **Thinking budget**: scaled with model size.
+- Models that cannot fit are greyed out in the picker with an explanation.
+
 Works on Windows x64, Windows ARM64 and Linux. The GUI is PySide6 (Qt), which has native
 Windows ARM64 builds.
 
@@ -20,9 +31,10 @@ DOM_DEV=1 uv run python -m dom                # run the app using .dev/
 
 On Windows PowerShell use `$env:DOM_DEV = "1"; uv run python -m dom`.
 
-`fetch_test_assets.py` downloads the CPU build of the latest stable llama.cpp release for your
-OS/CPU into `.dev/bin/` (the exact version is written to `.dev/bin/VERSION`) and the Q4_K_M and
-Q8_0 quants of `unsloth/Qwen3.5-0.8B-GGUF` into `.dev/models/`. Every file is checked against the
+`fetch_test_assets.py` downloads the CPU and Vulkan (GPU) builds of the latest stable llama.cpp
+release for your OS/CPU into `.dev/bin/cpu/` and `.dev/bin/vulkan/` (the exact version is written
+to `VERSION` in each) and the Q4_K_M and Q8_0 quants of `unsloth/Qwen3.5-0.8B-GGUF` into
+`.dev/models/`. Every file is checked against the
 SHA-256 its source publishes. Interrupted downloads resume, and re-runs skip anything already
 verified.
 
@@ -32,10 +44,11 @@ On Linux, Qt needs the `libxcb-cursor0` system package when running under X11.
 
 | | Development (`DOM_DEV=1`) | Normal |
 |---|---|---|
-| `llama-server` | `.dev/bin/` | `DOM_LLAMA_SERVER` if set, else `<data>/bin/`, else `PATH` |
+| `llama-server` | `.dev/bin/<build>/` | `DOM_LLAMA_SERVER` if set, else `<data>/bin/<build>/` (or `<data>/bin/`), else `PATH` |
 | Models (`*.gguf`) | `.dev/models/` | `<data>/models/` |
 | Chat history | `.dev/data/dom.sqlite3` | `<data>/dom.sqlite3` |
 | Logs | `.dev/data/logs/` | `<data>/logs/` (`dom.log`, `llama-server.log`) |
+| Tuning files | `.dev/data/` | `<data>/presets.ini` (rewritten by dom), `<data>/benchmarks.json` |
 
 `<data>` is the OS user-data folder: `~/.local/share/dom` on Linux, `%LOCALAPPDATA%\dom` on
 Windows.
@@ -75,6 +88,12 @@ Run with `DOM_DEV=1 uv run python -m dom` after fetching the test assets.
    - Linux: `pgrep -a llama-server` prints nothing.
    - Windows: `Get-Process llama-server -ErrorAction SilentlyContinue` prints nothing (or check
      Task Manager).
+7. **Automatic setup (milestone 2a).** Hover over "AI engine running": the tooltip lists the
+   detected hardware. Pick a model: next to the picker dom shows what it is doing ("Checking how
+   much memory…", and on a computer with a built-in GPU, the one-time speed test), then e.g.
+   "Running on Intel(R) Iris(R) Xe Graphics (GPU) · 32k context" or "Running on CPU · 16k
+   context". Close and reopen dom and pick the same model: the speed test does not run again.
+   `dom.log` records the detected hardware, the speed-test results and the chosen settings.
 
 Optional: kill the `llama-server` process while the app is running. The banner says the AI engine
 stopped unexpectedly and offers **Restart**, which also reloads the model you had picked.

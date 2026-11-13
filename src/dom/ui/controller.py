@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from dom.backend.errors import BackendError
-from dom.domain import ChatMessage, Message, ModelInfo, ModelStatus, Role
+from dom.domain import ChatMessage, LoadedModel, Message, ModelInfo, ModelStatus, Role
 from dom.storage.errors import StorageError
 from dom.ui.protocols import ServerState
 
@@ -23,6 +24,14 @@ logger = logging.getLogger(__name__)
 
 TITLE_MAX_CHARS = 60
 MODEL_POLL_INTERVAL_S = 0.5
+
+
+def describe_loaded(loaded: LoadedModel) -> str:
+    """E.g. "Running on Intel Iris Xe (GPU) · 32k context"."""
+    text = f"Running on {loaded.device_label}"
+    if loaded.ctx_size:
+        text += f" · {loaded.ctx_size // 1024}k context"
+    return text
 
 
 def make_title(text: str) -> str:
@@ -61,6 +70,7 @@ class ChatController:
         self._load_task: asyncio.Task[None] | None = None
         self._watch_task: asyncio.Task[None] | None = None
         self._shut_down = False
+        self._loading_model: str | None = None
 
     # ---- lifecycle -----------------------------------------------------------------------
 
@@ -108,6 +118,7 @@ class ChatController:
             self._set_server_state(ServerState.FAILED, str(exc))
             return
         self._set_server_state(ServerState.READY, None)
+        self._view.show_hardware(self._service.hardware_summary())
         self._watch_task = asyncio.create_task(self._watch_for_crash())
         await self._refresh_models()
 
@@ -119,8 +130,9 @@ class ChatController:
             self._reply_task.cancel()
         if self._load_task is not None:
             self._load_task.cancel()
-        self._models = [ModelInfo(m.id, ModelStatus.UNLOADED, m.path) for m in self._models]
+        self._models = [replace(m, status=ModelStatus.UNLOADED) for m in self._models]
         self._view.show_models(self._models, self._selected_model)
+        self._view.show_model_details(None)
         self._set_server_state(
             ServerState.CRASHED,
             f"The AI engine stopped unexpectedly (exit code {code}). "
@@ -138,26 +150,34 @@ class ChatController:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._load_task
         self._selected_model = model_id
-        self._models = [
-            ModelInfo(m.id, ModelStatus.LOADING, m.path) if m.id == model_id else m
-            for m in self._models
-        ]
+        self._loading_model = model_id
+        self._models = [self._as_loading(m) for m in self._models]
         self._view.show_models(self._models, model_id)
         self._update_input()
         self._load_task = asyncio.create_task(self._load(model_id))
         await self._load_task
 
     async def _load(self, model_id: str) -> None:
+        self._view.show_model_details("Preparing the model…")
         poller = asyncio.create_task(self._poll_models_while_loading())
         try:
-            await self._service.select_model(model_id)
+            loaded = await self._service.select_model(model_id, self._view.show_model_details)
         except BackendError as exc:
+            self._view.show_model_details(None)
             self._view.show_error(f"Could not load {model_id}. {exc}")
+        else:
+            self._view.show_model_details(describe_loaded(loaded))
         finally:
+            self._loading_model = None
             poller.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await poller
         await self._refresh_models()
+
+    def _as_loading(self, model: ModelInfo) -> ModelInfo:
+        if model.id == self._loading_model and model.status != ModelStatus.LOADED:
+            return replace(model, status=ModelStatus.LOADING)
+        return model
 
     async def _poll_models_while_loading(self) -> None:
         while True:
@@ -166,10 +186,12 @@ class ChatController:
 
     async def _refresh_models(self) -> None:
         try:
-            self._models = await self._service.list_models()
+            models = await self._service.list_models()
         except BackendError as exc:
             self._view.show_error(str(exc))
             return
+        # While dom measures, benchmarks or re-tunes a model the server still calls it unloaded.
+        self._models = [self._as_loading(m) for m in models]
         self._view.show_models(self._models, self._selected_model)
         self._update_input()
 

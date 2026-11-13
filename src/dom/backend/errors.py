@@ -39,3 +39,7 @@ class ModelLoadError(BackendError):
 
 class ChatStreamError(BackendError):
     """A streamed reply ended with an error or could not be parsed."""
+
+
+class ModelTooLargeError(BackendError):
+    """The model does not fit in this computer's free memory."""

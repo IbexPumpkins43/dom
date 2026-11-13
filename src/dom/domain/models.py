@@ -121,3 +121,15 @@ class ModelInfo:
     exit_code: int | None = None
     context_length: int | None = None
     memory: ModelMemory | None = None
+    memory_state: str | None = None
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedModel:
+    """A model that is loaded and ready, and how it was set up."""
+
+    info: ModelInfo
+    ctx_size: int | None
+    device_label: str
+    tuned: bool

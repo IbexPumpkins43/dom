@@ -76,7 +76,10 @@ pythonVersion = "3.12"
 - Check `llama-server` flags and endpoints against `llama-server --help` and the llama.cpp server
   README for the installed build.
 - Every inference parameter lives in `config/` (`InferenceSettings`). Don't hard-code flags
-  anywhere else.
+  anywhere else. Its values reach llama-server only through the generated presets file
+  (`backend/presets.py`), never as router command-line flags: those override presets.
+- Automatic tuning (`tuning/`) chooses per-model settings from `hardware/` detection and the
+  router's memory measurements; keep `tuning/` pure and unit-tested.
 - The UI never blocks on network or disk I/O.
 - Never leave orphaned `llama-server` processes.
 - Must work on Windows x64, Windows ARM64 and Linux.
