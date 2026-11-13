@@ -120,6 +120,13 @@ QPushButton:hover {{ background: {t.base02}; }}
 QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 
 #windowFrame {{ background: {t.base01}; }}
+#usagePanel {{ border-top: 1px solid {t.base02}; }}
+#usageLabel {{ color: {t.base04}; font-size: 11px; font-weight: 600; }}
+#usageValue {{ color: {t.base05}; font-size: 11px; }}
+#cpuBar, #memoryBar {{ background: {t.base00}; border: none; border-radius: 2px; }}
+#cpuBar::chunk {{ background: {t.base0A}; border-radius: 2px; }}
+#memoryBar::chunk {{ background: {t.base09}; border-radius: 2px; }}
+#cpuBar[high="true"]::chunk, #memoryBar[high="true"]::chunk {{ background: {t.base08}; }}
 #titleBar {{ background: {t.base01}; border-bottom: 1px solid {t.base02}; }}
 #titleBarName {{ color: {t.base09}; font-weight: 700; font-size: 13px; letter-spacing: 1px; }}
 #titleBarTitle {{ color: {t.base04}; font-size: 12px; }}
@@ -216,7 +223,12 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #sendButton[stop="true"] {{ background: {t.base08}; color: {t.base00}; }}
 #errorLabel {{ color: {t.base08}; }}
 
-QDialog {{ background: {t.base00}; }}
+QDialog, #dialogContent {{ background: {t.base00}; }}
+#dialogMessage {{ color: {t.base05}; font-size: 13px; }}
+#dangerButton {{ background: {t.base08}; color: {t.base00}; border: none; font-weight: 600; }}
+#dangerButton:hover {{ background: {t.base09}; }}
+#primaryButton {{ background: {t.base09}; color: {t.base00}; border: none; font-weight: 600; }}
+#primaryButton:hover {{ background: {t.base0A}; }}
 #dialogHeading {{ font-size: 18px; font-weight: 600; color: {t.base06}; }}
 #modelRow {{ border: 1px solid {t.base02}; border-radius: 5px; background: {t.base01}; }}
 #modelRowTitle {{ font-weight: 600; font-size: 14px; color: {t.base06}; }}

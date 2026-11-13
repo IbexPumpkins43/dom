@@ -21,6 +21,25 @@ class MemoryStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemUsage:
+    """How busy the computer is right now."""
+
+    cpu_percent: float
+    memory: MemoryStatus
+
+    @property
+    def memory_used_bytes(self) -> int:
+        """RAM in use (total minus available)."""
+        return self.memory.total_bytes - self.memory.available_bytes
+
+    @property
+    def memory_percent(self) -> float:
+        """RAM in use, as a percentage."""
+        total = self.memory.total_bytes
+        return 100.0 * self.memory_used_bytes / total if total else 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class GpuDevice:
     """A GPU llama.cpp can offload to, as reported by ``llama-server --list-devices``."""
 

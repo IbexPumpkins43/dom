@@ -95,9 +95,15 @@ class CaptionButton(QAbstractButton):
 class TitleBar(QWidget):
     """The top bar: app name, current chat title and the window buttons. Drag it to move."""
 
-    def __init__(self, theme: Base16, parent: QWidget | None = None) -> None:
-        """Create the bar (it acts on the top-level window it ends up in)."""
+    def __init__(
+        self, theme: Base16, parent: QWidget | None = None, *, maximizable: bool = True
+    ) -> None:
+        """Create the bar (it acts on the top-level window it ends up in).
+
+        ``maximizable=False`` (dialogs) shows only the close button.
+        """
         super().__init__(parent)
+        self._maximizable = maximizable
         self.setObjectName("titleBar")
         self.setFixedHeight(TITLE_BAR_HEIGHT)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -116,6 +122,8 @@ class TitleBar(QWidget):
         self.close_button = CaptionButton("close", theme)
         for button in (self.minimize_button, self.maximize_button, self.close_button):
             layout.addWidget(button)
+        self.minimize_button.setVisible(maximizable)
+        self.maximize_button.setVisible(maximizable)
         self.minimize_button.clicked.connect(lambda: self.window().showMinimized())
         self.maximize_button.clicked.connect(self.toggle_maximized)
         self.close_button.clicked.connect(lambda: self.window().close())
@@ -130,6 +138,8 @@ class TitleBar(QWidget):
 
     def toggle_maximized(self) -> None:
         """Maximise, or restore if already maximised."""
+        if not self._maximizable:
+            return
         window = self.window()
         if window.isMaximized():
             window.showNormal()
@@ -189,9 +199,17 @@ def _cursor_for(edges: Qt.Edge) -> Qt.CursorShape:
 class WindowFrame(QWidget):
     """The window's content area with a thin border you can drag to resize the window."""
 
-    def __init__(self, title_bar: TitleBar, body: QWidget, parent: QWidget | None = None) -> None:
-        """Stack ``title_bar`` above ``body`` inside a resize border."""
+    def __init__(
+        self,
+        title_bar: TitleBar,
+        body: QWidget,
+        parent: QWidget | None = None,
+        *,
+        resizable: bool = True,
+    ) -> None:
+        """Stack ``title_bar`` above ``body`` inside a border (draggable if ``resizable``)."""
         super().__init__(parent)
+        self._resizable = resizable
         self.setObjectName("windowFrame")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMouseTracking(True)
@@ -202,14 +220,17 @@ class WindowFrame(QWidget):
         self.set_maximized(False)
 
     def set_maximized(self, maximized: bool) -> None:
-        """No resize border while maximised."""
-        margin = 0 if maximized else RESIZE_MARGIN
+        """No resize border while maximised; a 1 px outline for fixed-size windows."""
+        margin = 0 if maximized else (RESIZE_MARGIN if self._resizable else 1)
         self._layout.setContentsMargins(margin, margin, margin, margin)
         self._margin = margin
 
+    def _edges(self, pos: QPoint) -> Qt.Edge | None:
+        return edges_at(pos, self.size(), self._margin) if self._resizable else None
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 -- Qt override
         """Show a resize cursor over the border."""
-        edges = edges_at(event.position().toPoint(), self.size(), self._margin)
+        edges = self._edges(event.position().toPoint())
         if edges is None:
             self.unsetCursor()
         else:
@@ -223,7 +244,7 @@ class WindowFrame(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 -- Qt override
         """Dragging the border resizes the window (done by the OS)."""
-        edges = edges_at(event.position().toPoint(), self.size(), self._margin)
+        edges = self._edges(event.position().toPoint())
         window = self.window()
         if event.button() == Qt.MouseButton.LeftButton and edges is not None and window.isVisible():
             window.windowHandle().startSystemResize(edges)

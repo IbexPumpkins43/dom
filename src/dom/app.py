@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import qasync
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 
 from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
 from dom.backend.errors import EngineMissingError
@@ -32,11 +32,12 @@ from dom.config import (
 from dom.downloads.engine import EngineInstaller
 from dom.downloads.library import ModelLibrary
 from dom.hardware import HardwareProbe
-from dom.hardware.probe import read_memory
+from dom.hardware.probe import read_memory, read_usage
 from dom.selftest import run_self_test
 from dom.storage import SqliteConversationRepository, StorageError
 from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
+from dom.ui.dialogs import show_message
 from dom.ui.library import LibraryController
 from dom.ui.main_window import MainWindow
 from dom.ui.theme import apply_theme
@@ -127,7 +128,7 @@ async def _run(
     service: InferenceService, repo: SqliteConversationRepository, paths: AppPaths
 ) -> int:
     closed = asyncio.Event()
-    window = MainWindow(on_closed=closed.set)
+    window = MainWindow(on_closed=closed.set, usage_reader=read_usage)
     controller = ChatController(service, repo, window, EngineInstaller(paths.bin_dir))
     probe = HardwareProbe()
     library = LibraryController(
@@ -180,7 +181,7 @@ def main() -> int:
         repo = SqliteConversationRepository(paths.db_path)
     except StorageError as exc:
         logger.exception("Could not open the database")
-        QMessageBox.critical(None, "dom", f"dom could not open its chat history.\n\n{exc}")
+        show_message(None, "dom", f"dom could not open its chat history.\n\n{exc}")
         return 1
 
     service = build_service(paths, InferenceSettings())

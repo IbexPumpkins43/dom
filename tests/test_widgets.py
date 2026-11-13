@@ -5,15 +5,26 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QPalette, QStandardItemModel
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QListWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QListWidget,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from dom.domain import Conversation, ModelInfo, ModelStatus
+from dom.hardware import MemoryStatus, SystemUsage
+from dom.hardware.models import GIB
+from dom.hardware.probe import read_usage
+from dom.ui.dialogs import FramedDialog, confirm
 from dom.ui.theme import BRASA, apply_theme
 from dom.ui.titlebar import TitleBar, edges_at
-from dom.ui.widgets import ModelPicker, Sidebar
+from dom.ui.widgets import ModelPicker, Sidebar, UsagePanel
 
 
 @pytest.fixture(scope="module")
@@ -113,3 +124,49 @@ def test_title_bar_buttons_and_title(qt_app: QApplication) -> None:
     bar.close_button.click()
     assert not window.isVisible()
     assert qt_app is not None
+
+
+def test_usage_panel_shows_cpu_and_memory(qt_app: QApplication) -> None:
+    panel = UsagePanel()
+    panel.set_usage(SystemUsage(23.4, MemoryStatus(16 * GIB, 6 * GIB)))
+    assert panel.cpu_text.text() == "23%"
+    assert panel.memory_text.text() == "10.0 / 16.0 GB"
+    assert panel.cpu_bar.value() == 23  # noqa: PLR2004
+    assert panel.memory_bar.value() == 62  # noqa: PLR2004
+    assert panel.memory_bar.property("high") is False
+    panel.set_usage(SystemUsage(97.0, MemoryStatus(16 * GIB, 1 * GIB)))
+    assert panel.cpu_bar.property("high") is True
+    assert panel.memory_bar.property("high") is True
+    assert qt_app is not None
+
+
+def test_read_usage_returns_sane_values() -> None:
+    usage = read_usage()
+    assert 0.0 <= usage.cpu_percent <= 100.0  # noqa: PLR2004
+    assert 0 < usage.memory_used_bytes <= usage.memory.total_bytes
+
+
+def test_framed_dialog_uses_dom_title_bar(qt_app: QApplication) -> None:
+    dialog = FramedDialog("Get models", resizable=True)
+    assert dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert dialog.title_bar.title() == "Get models"
+    assert not dialog.title_bar.maximize_button.isVisibleTo(dialog)
+    assert dialog.title_bar.close_button.isVisibleTo(dialog)
+    assert qt_app is not None
+
+
+@pytest.mark.parametrize(("press", "expected"), [("cancel", False), ("confirm", True)])
+def test_confirm_dialog(qt_app: QApplication, press: str, expected: bool) -> None:
+    def answer() -> None:
+        dialog = qt_app.activeModalWidget()
+        assert isinstance(dialog, FramedDialog)
+        name = "dangerButton" if press == "confirm" else None
+        buttons = dialog.findChildren(QPushButton)
+        target = next(
+            b for b in buttons if (b.objectName() == name if name else b.text() == "Cancel")
+        )
+        assert next(b for b in buttons if b.text() == "Cancel").isDefault()
+        target.click()
+
+    QTimer.singleShot(0, answer)
+    assert confirm(None, "Delete chat", "Delete it?", "Delete", danger=True) is expected

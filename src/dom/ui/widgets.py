@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from dom.domain import ModelStatus, Role
+from dom.hardware.models import GIB
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,11 +34,14 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QEnterEvent, QFocusEvent, QKeyEvent, QResizeEvent
 
     from dom.domain import Conversation, Message, ModelInfo
+    from dom.hardware import SystemUsage
 
 # Redraw a streaming reply at most this often; re-rendering Markdown per token is slow.
 REPLY_REDRAW_MS = 50
 INPUT_MAX_LINES = 8
 SIDEBAR_WIDTH = 260
+USAGE_BAR_HEIGHT = 4
+USAGE_HIGH_PERCENT = 85
 MODEL_PICKER_MIN_WIDTH = 220
 CHAT_MAX_WIDTH = 860
 USER_BUBBLE_MAX_WIDTH = 620
@@ -336,6 +341,61 @@ class _ConversationRow(QWidget):
         super().leaveEvent(event)
 
 
+class UsagePanel(QWidget):
+    """CPU and memory use of this computer, shown at the bottom of the sidebar."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Create the panel (empty until the first ``set_usage``)."""
+        super().__init__(parent)
+        self.setObjectName("usagePanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 10, 4, 2)
+        layout.setSpacing(4)
+        self.cpu_text, self.cpu_bar = self._row(layout, "CPU", "cpuBar")
+        layout.addSpacing(4)
+        self.memory_text, self.memory_bar = self._row(layout, "Memory", "memoryBar")
+
+    @staticmethod
+    def _row(layout: QVBoxLayout, name: str, bar_name: str) -> tuple[QLabel, QProgressBar]:
+        line = QHBoxLayout()
+        label = QLabel(name)
+        label.setObjectName("usageLabel")
+        value = QLabel("…")
+        value.setObjectName("usageValue")
+        value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        line.addWidget(label)
+        line.addWidget(value, 1)
+        layout.addLayout(line)
+        bar = QProgressBar()
+        bar.setObjectName(bar_name)
+        bar.setRange(0, 100)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(USAGE_BAR_HEIGHT)
+        layout.addWidget(bar)
+        return value, bar
+
+    def set_usage(self, usage: SystemUsage) -> None:
+        """Show a new reading."""
+        cpu = round(usage.cpu_percent)
+        memory = round(usage.memory_percent)
+        self.cpu_text.setText(f"{cpu}%")
+        self.memory_text.setText(
+            f"{usage.memory_used_bytes / GIB:.1f} / {usage.memory.total_bytes / GIB:.1f} GB"
+        )
+        for bar, value in ((self.cpu_bar, cpu), (self.memory_bar, memory)):
+            bar.setValue(value)
+            high = value >= USAGE_HIGH_PERCENT
+            if bar.property("high") != high:
+                bar.setProperty("high", high)
+                bar.style().unpolish(bar)
+                bar.style().polish(bar)
+        self.setToolTip(
+            f"This computer is using {cpu}% of its processor and {memory}% of its memory "
+            "(all programs, not just dom)."
+        )
+
+
 class Sidebar(QFrame):
     """Past conversations (newest first), New chat and Get models."""
 
@@ -372,6 +432,8 @@ class Sidebar(QFrame):
         self._list.customContextMenuRequested.connect(self._show_context_menu)
         self._list.itemClicked.connect(self._on_clicked)
         layout.addWidget(self._list, 1)
+        self.usage = UsagePanel()
+        layout.addWidget(self.usage)
         self._titles: dict[str, str] = {}
 
     def set_conversations(

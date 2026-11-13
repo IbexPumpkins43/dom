@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING
 import psutil
 
 from dom.config.binary import run_engine_tool
-from dom.hardware.models import MIB, GpuDevice, HardwareProfile, MemoryStatus
+from dom.hardware.models import (
+    MIB,
+    GpuDevice,
+    HardwareProfile,
+    MemoryStatus,
+    SystemUsage,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -87,6 +93,11 @@ def read_memory() -> MemoryStatus:
     """Current system RAM from psutil."""
     vm = psutil.virtual_memory()
     return MemoryStatus(total_bytes=vm.total, available_bytes=vm.available)
+
+
+def read_usage() -> SystemUsage:
+    """Current CPU load (since the previous call, so it never waits) and RAM use."""
+    return SystemUsage(cpu_percent=psutil.cpu_percent(interval=None), memory=read_memory())
 
 
 def list_devices(build: ServerBuild) -> list[tuple[str, str, int, int]]:

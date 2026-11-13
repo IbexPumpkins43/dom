@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, Qt, QTimer
@@ -9,13 +10,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from dom.ui.controller import spawn
+from dom.ui.dialogs import confirm
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.protocols import ServerState
 from dom.ui.theme import BRASA
@@ -23,16 +24,17 @@ from dom.ui.titlebar import TitleBar, WindowFrame
 from dom.ui.widgets import Banner, ChatArea, ChatInput, ElidedLabel, ModelPicker, Sidebar
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Callable, Coroutine, Sequence
 
     from PySide6.QtGui import QCloseEvent
 
     from dom.domain import Conversation, Message, ModelInfo
+    from dom.hardware import SystemUsage
     from dom.ui.controller import ChatController
     from dom.ui.library import LibraryController
 
 ERROR_DISPLAY_MS = 10_000
+USAGE_REFRESH_MS = 2000
 COMPOSER_MAX_WIDTH = 900
 
 _SERVER_LABELS: dict[ServerState, str] = {
@@ -49,9 +51,19 @@ _SERVER_LABELS: dict[ServerState, str] = {
 class MainWindow(QMainWindow):
     """The chat window."""
 
-    def __init__(self, on_closed: Callable[[], None]) -> None:
-        """Build the window; call ``attach`` before showing it."""
+    def __init__(
+        self,
+        on_closed: Callable[[], None],
+        usage_reader: Callable[[], SystemUsage] | None = None,
+    ) -> None:
+        """Build the window; call ``attach`` before showing it.
+
+        ``usage_reader`` (if given) is sampled every few seconds, off the UI thread, for the
+        CPU/memory panel at the bottom of the sidebar.
+        """
         super().__init__()
+        self._usage_reader = usage_reader
+        self._usage_busy = False
         self._on_closed = on_closed
         self._controller: ChatController | None = None
         self._library: LibraryController | None = None
@@ -94,6 +106,12 @@ class MainWindow(QMainWindow):
         self._send.setObjectName("sendButton")
         self._send.setCursor(Qt.CursorShape.PointingHandCursor)
         self._build_layout()
+        self._usage_timer = QTimer(self)
+        self._usage_timer.setInterval(USAGE_REFRESH_MS)
+        self._usage_timer.timeout.connect(self._sample_usage)
+        self._sidebar.usage.setVisible(usage_reader is not None)
+        if usage_reader is not None:
+            self._usage_timer.start()
 
     def _build_layout(self) -> None:
         composer = self._composer
@@ -264,6 +282,19 @@ class MainWindow(QMainWindow):
         self._input.clear()
         self._run(controller.send(text))
 
+    def _sample_usage(self) -> None:
+        if self._usage_reader is None or self._usage_busy or self._closing:
+            return
+        self._usage_busy = True
+        self._run(self._refresh_usage(self._usage_reader))
+
+    async def _refresh_usage(self, reader: Callable[[], SystemUsage]) -> None:
+        try:
+            usage = await asyncio.to_thread(reader)
+        finally:
+            self._usage_busy = False
+        self._sidebar.usage.set_usage(usage)
+
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802 -- Qt override
         """Keep the title bar and resize border in step with maximise/restore."""
         if event.type() == QEvent.Type.WindowStateChange:
@@ -281,14 +312,13 @@ class MainWindow(QMainWindow):
         controller = self._controller
         if controller is None:
             return
-        answer = QMessageBox.question(
+        if confirm(
             self,
             "Delete chat",
             f"Delete “{title or 'this chat'}”?\n\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
+            "Delete",
+            danger=True,
+        ):
             self._run(controller.delete_conversation(conversation_id))
 
     def _on_banner_action(self) -> None:

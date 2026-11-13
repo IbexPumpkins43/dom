@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from dom.catalog.recommend import needed_bytes
 from dom.hardware.models import GIB
+from dom.ui.dialogs import FramedDialog
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -118,7 +118,7 @@ class _ModelRow(QFrame):
         self.progress.setFormat(f"{done / 1e9:.1f} of {total / 1e9:.1f} GB")
 
 
-class LibraryDialog(QDialog):
+class LibraryDialog(FramedDialog):
     """Implements ``LibraryView``: lists catalog models and their downloads."""
 
     download_requested = Signal(str)
@@ -126,10 +126,9 @@ class LibraryDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create the (empty) window."""
-        super().__init__(parent)
-        self.setWindowTitle("Get models")
+        super().__init__("Get models", parent, resizable=True)
         self.resize(760, 680)
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self.content())
         layout.setContentsMargins(18, 18, 18, 18)
         heading = QLabel("Get models")
         heading.setObjectName("dialogHeading")

@@ -34,7 +34,9 @@ The look follows the [base16 Brasa](https://github.com/tinted-theming/schemes/bl
 colour scheme (`src/dom/ui/theme.py`); the model picker sits under the message box. dom draws its
 own title bar in the same colours (`src/dom/ui/titlebar.py`): drag it to move the window,
 double-click it to maximise, drag the window's edges to resize. Moving and resizing are done by the
-operating system, so snapping to screen edges keeps working.
+operating system, so snapping to screen edges keeps working. Every window dom opens (Get models,
+confirmations, error messages) uses the same title bar. The bottom of the sidebar shows how busy
+the computer is (CPU and memory, all programs), refreshed every 2 seconds.
 
 Works on Windows x64, Windows ARM64 and Linux. The GUI is PySide6 (Qt), which has native
 Windows ARM64 builds.
