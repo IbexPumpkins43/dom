@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dom.ui.library import QUANT_FILTERS, Filters, Fit, SizeRange
+from dom.ui.library import QUANT_FILTERS, SIZE_BANDS, Filters, Fit, size_range
+from dom.ui.range_slider import RangeSlider
 from dom.ui.widgets import ElidedLabel
 
 if TYPE_CHECKING:
@@ -34,19 +35,30 @@ if TYPE_CHECKING:
 CARD_MIN_WIDTH = 290
 CARD_HEIGHT = 168
 GRID_SPACING = 12
+SIZE_SLIDER_WIDTH = 200
+SIZE_SLIDER_MIN_WIDTH = 90
+SIZE_VALUE_WIDTH = 78
 SEARCH_DELAY_MS = 500  # search after typing pauses this long (or straight away on Enter)
 WORDS_PER_TOKEN = 0.75
 PROGRESS_STEPS = 1000
 
-SIZE_LABELS: dict[SizeRange, str] = {
-    SizeRange.ANY: "Any size",
-    SizeRange.TINY: "Up to 2B parameters",
-    SizeRange.SMALL: "2B to 5B parameters",
-    SizeRange.MEDIUM: "5B to 10B parameters",
-    SizeRange.LARGE: "10B to 20B parameters",
-    SizeRange.VERY_LARGE: "20B to 40B parameters",
-    SizeRange.HUGE: "Over 40B parameters",
-}
+
+def _b(value: float | None) -> str:
+    return f"{value:g}B"
+
+
+def size_text(first_band: int, last_band: int) -> str:
+    """The slider's range in words: "Any size", "Up to 8B", "14B and over", "4B to 24B"."""
+    last = len(SIZE_BANDS) - 1
+    low, high = size_range(first_band, last_band)
+    if first_band == 0 and last_band == last:
+        return "Any size"
+    if low is None:
+        return f"Under {_b(high)}" if last_band == 0 else f"Up to {_b(high)}"
+    if high is None:
+        return f"Over {_b(low)}" if first_band == last else f"{_b(low)} and over"
+    return f"{_b(low)} to {_b(high)}"
+
 
 _FIT_TEXT: dict[Fit, str] = {
     Fit.GOOD: "Runs well on this computer",
@@ -249,7 +261,7 @@ class ModelsScreen(QWidget):
         self._cards: dict[str, ModelCardWidget] = {}
         self._columns = 0
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(28, 22, 28, 0)
+        outer.setContentsMargins(22, 22, 22, 0)
         outer.setSpacing(10)
 
         self._build_header(outer)
@@ -308,26 +320,36 @@ class ModelsScreen(QWidget):
     def _build_filters(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.size_filter = QComboBox()
-        self.size_filter.setObjectName("filterBox")
-        self.size_filter.setToolTip("Model size: bigger models answer better but need more memory")
-        for size, label in SIZE_LABELS.items():
-            self.size_filter.addItem(label, size.value)
+        self.size_slider = RangeSlider(len(SIZE_BANDS))
+        self.size_slider.setObjectName("sizeSlider")
+        self.size_slider.setMinimumWidth(SIZE_SLIDER_MIN_WIDTH)
+        self.size_slider.setMaximumWidth(SIZE_SLIDER_WIDTH)
+        self.size_slider.setToolTip(
+            "Model size (parameters): bigger models answer better but need more memory. "
+            "Drag either end; from <2B to >40B."
+        )
+        self.size_value = QLabel(size_text(0, len(SIZE_BANDS) - 1))
+        self.size_value.setObjectName("filterValue")
+        self.size_value.setMinimumWidth(SIZE_VALUE_WIDTH)
+        self.size_slider.range_moved.connect(self._size_moved)
+        self.size_slider.range_changed.connect(self._size_changed)
         self.quant_filter = QComboBox()
         self.quant_filter.setObjectName("filterBox")
         self.quant_filter.setToolTip(
             "Only models offering this version (quantisation). Q8_0 is closest to the original; "
             "lower numbers are smaller and faster but less accurate."
         )
-        self.quant_filter.addItem("Any version", "")
+        self.quant_filter.addItem("Quantisation", "")
         for quant in QUANT_FILTERS:
             self.quant_filter.addItem(quant, quant)
-        self.fits_filter = QCheckBox("Only models that fit this computer")
+        self.fits_filter = QCheckBox("Fits this computer")
+        self.fits_filter.setToolTip("Only show models that fit in this computer's memory")
         self.fits_filter.setObjectName("filterCheck")
-        for box in (self.size_filter, self.quant_filter):
-            box.activated.connect(self._filter_picked)
+        self.quant_filter.activated.connect(self._filter_picked)
         self.fits_filter.toggled.connect(self._filter_toggled)
-        row.addWidget(self.size_filter)
+        row.addWidget(self.size_slider)
+        row.addWidget(self.size_value)
+        row.addSpacing(10)
         row.addWidget(self.quant_filter)
         row.addSpacing(6)
         row.addWidget(self.fits_filter)
@@ -336,13 +358,19 @@ class ModelsScreen(QWidget):
 
     def filters(self) -> Filters:
         """The filters as set on screen."""
-        size: object = self.size_filter.currentData()
         quant: object = self.quant_filter.currentData()
         return Filters(
-            size=SizeRange(size) if isinstance(size, str) else SizeRange.ANY,
+            size=size_range(*self.size_slider.values()),
             quant=quant if isinstance(quant, str) and quant else None,
             fits_only=self.fits_filter.isChecked(),
         )
+
+    def _size_moved(self, first: int, last: int) -> None:
+        self.size_value.setText(size_text(first, last))
+
+    def _size_changed(self, first: int, last: int) -> None:
+        self._size_moved(first, last)
+        self.filters_changed.emit(self.filters())
 
     def _filter_picked(self, _index: int) -> None:
         self.filters_changed.emit(self.filters())

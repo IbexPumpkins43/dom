@@ -122,6 +122,7 @@ def build_palette(t: Base16) -> QPalette:
         QPalette.ColorRole.ToolTipText: t.base05,
         QPalette.ColorRole.PlaceholderText: t.base04,
         QPalette.ColorRole.Link: t.base0D,
+        QPalette.ColorRole.Accent: t.base09,
         QPalette.ColorRole.LinkVisited: t.base0E,
         QPalette.ColorRole.Light: t.base03,
         QPalette.ColorRole.Midlight: t.base02,
@@ -396,6 +397,7 @@ QDialog, #dialogContent {{ background: {t.base00}; }}
     selection-background-color: {t.base02};
     border: 1px solid {t.base03};
 }}
+#filterValue {{ color: {t.base06}; font-size: 12px; }}
 #filterCheck {{ color: {t.base05}; font-size: 12px; spacing: 6px; }}
 #filterCheck::indicator {{
     width: 14px;

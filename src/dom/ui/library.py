@@ -40,28 +40,19 @@ LOCAL_PREFIX = "local:"  # card keys of downloaded files that are not in the sea
 HF_MODEL_PAGE = "https://huggingface.co/"
 
 
-class SizeRange(StrEnum):
-    """The parameter-count filter."""
-
-    ANY = "any"
-    TINY = "tiny"
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
-    VERY_LARGE = "very_large"
-    HUGE = "huge"
+# The size slider's bands, in billions of parameters: <2B, 2-4B, ... >40B. Selecting from the first
+# to the last band means any size.
+SIZE_BANDS: tuple[ParamRange, ...] = (
+    (None, 2), (2, 4), (4, 8), (8, 14), (14, 24), (24, 40), (40, None),
+)  # fmt: skip
+ANY_SIZE: ParamRange = (None, None)
 
 
-# Billions of parameters: (at least, at most).
-SIZE_RANGES: dict[SizeRange, ParamRange] = {
-    SizeRange.ANY: (None, None),
-    SizeRange.TINY: (None, 2),
-    SizeRange.SMALL: (2, 5),
-    SizeRange.MEDIUM: (5, 10),
-    SizeRange.LARGE: (10, 20),
-    SizeRange.VERY_LARGE: (20, 40),
-    SizeRange.HUGE: (40, None),
-}
+def size_range(first_band: int, last_band: int) -> ParamRange:
+    """The parameter range covering bands ``first_band`` to ``last_band`` (inclusive)."""
+    return (SIZE_BANDS[first_band][0], SIZE_BANDS[last_band][1])
+
+
 # Quantisations offered as a filter, best quality first.
 QUANT_FILTERS: tuple[str, ...] = (
     "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "IQ4_XS", "Q3_K_M", "Q2_K",
@@ -72,7 +63,7 @@ QUANT_FILTERS: tuple[str, ...] = (
 class Filters:
     """Which models the screen shows, besides the search text."""
 
-    size: SizeRange = SizeRange.ANY
+    size: ParamRange = ANY_SIZE  # billions of parameters: (at least, at most)
     quant: str | None = None  # only models offering this version (which is then preselected)
     fits_only: bool = False  # hide models too large for this computer
 
@@ -269,7 +260,7 @@ class LibraryController:
     async def _fetch(self, page_url: str | None) -> None:
         try:
             if page_url is None:
-                page = await self._source.search(self._query, SIZE_RANGES[self._filters.size])
+                page = await self._source.search(self._query, self._filters.size)
             else:
                 page = await self._source.page(page_url)
         except DownloadError as exc:
@@ -396,10 +387,10 @@ class LibraryController:
     def _passes(self, card: ModelCard) -> bool:
         """The filters, checked on a finished card."""
         filters = self._filters
-        size = SIZE_RANGES[filters.size]
+        size = filters.size
         if card.params_b is not None and not in_range(card.params_b, size):
             return False  # Hugging Face's size filter is approximate; the model's own count wins
-        if card.params_b is None and filters.size != SizeRange.ANY:
+        if card.params_b is None and filters.size != ANY_SIZE:
             return False
         if filters.quant is not None and not any(
             label_matches(v.label, filters.quant) for v in card.versions

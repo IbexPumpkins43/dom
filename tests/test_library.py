@@ -27,12 +27,13 @@ from dom.hardware import GpuDevice, HardwareProfile
 from dom.hardware.models import GIB
 from dom.ui.library import (
     LOCAL_PREFIX,
+    SIZE_BANDS,
     Filters,
     Fit,
     LibraryController,
     ModelCard,
     ScreenState,
-    SizeRange,
+    size_range,
 )
 from tests.fakes import TEST_HARDWARE, FakeDownloads, FakeSource
 
@@ -486,10 +487,10 @@ def test_search_url_asks_hugging_face_for_a_size() -> None:
 
 async def test_size_filter_searches_again_and_rechecks_parameters(screen: Screen) -> None:
     await screen.controller.open()
-    await screen.controller.set_filters(Filters(size=SizeRange.SMALL))  # 2B to 5B
-    assert screen.source.sizes[-1] == (2, 5)
+    await screen.controller.set_filters(Filters(size=(2, 4)))
+    assert screen.source.sizes[-1] == (2, 4)
     assert screen.view.cards == []  # the fake ignores the size: dom's own check removes them
-    await screen.controller.set_filters(Filters(size=SizeRange.MEDIUM))  # 5B to 10B
+    await screen.controller.set_filters(Filters(size=size_range(2, 3)))  # 4B to 14B
     assert [c.key for c in screen.view.cards] == [MEDIUM.repo]
 
 
@@ -541,3 +542,11 @@ def test_unknown_parameter_counts_do_not_break_estimates() -> None:
     assert model.params_b == 0
     [item] = suggest([model], _hw(16), {"Mystery-Q4_K_M.gguf"})
     assert item.est_tokens_per_s is not None
+
+
+def test_size_bands_cover_under_2b_to_over_40b() -> None:
+    last = len(SIZE_BANDS) - 1
+    assert size_range(0, last) == (None, None)
+    assert size_range(0, 0) == (None, 2)
+    assert size_range(last, last) == (40, None)
+    assert size_range(1, 3) == (2, 14)

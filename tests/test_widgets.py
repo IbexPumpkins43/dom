@@ -37,7 +37,7 @@ from dom.hardware.probe import read_usage
 from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.icons import Icon, icon_svg, make_icon
-from dom.ui.library import Filters, Fit, ModelCard, ScreenState, SizeRange, Version
+from dom.ui.library import Filters, Fit, ModelCard, ScreenState, Version
 from dom.ui.main_window import MainWindow
 from dom.ui.models_screen import (
     ModelCardWidget,
@@ -45,6 +45,7 @@ from dom.ui.models_screen import (
     author_html,
     facts_text,
     fit_text,
+    size_text,
 )
 from dom.ui.profile_widgets import (
     BUTTON_NAME_MAX_CHARS,
@@ -52,6 +53,7 @@ from dom.ui.profile_widgets import (
     ProfileDialog,
     avatar_pixmap,
 )
+from dom.ui.range_slider import RangeSlider
 from dom.ui.theme import (
     BRASA,
     UI_FONT_FAMILY,
@@ -601,13 +603,59 @@ def test_models_screen_filters(qt_app: QApplication) -> None:
     seen: list[object] = []
     screen.filters_changed.connect(seen.append)
     assert screen.filters() == Filters()
-    screen.size_filter.setCurrentIndex(2)
-    screen.size_filter.activated.emit(2)
+    assert screen.quant_filter.currentText() == "Quantisation"
+    assert screen.size_value.text() == "Any size"
+    screen.size_slider.set_values(1, 3)
+    screen.size_slider.range_changed.emit(1, 3)
     screen.quant_filter.setCurrentIndex(screen.quant_filter.findText("Q4_K_M"))
     screen.quant_filter.activated.emit(screen.quant_filter.currentIndex())
     screen.fits_filter.setChecked(True)
-    assert seen[-1] == Filters(size=SizeRange.SMALL, quant="Q4_K_M", fits_only=True)
+    assert seen[-1] == Filters(size=(2, 14), quant="Q4_K_M", fits_only=True)
+    assert screen.size_value.text() == "2B to 14B"
     assert len(seen) == 3  # noqa: PLR2004
+    assert qt_app is not None
+
+
+@pytest.mark.parametrize(
+    ("first", "last", "text"),
+    [(0, 6, "Any size"), (0, 0, "Under 2B"), (0, 2, "Up to 8B"), (6, 6, "Over 40B"),
+     (3, 6, "8B and over"), (2, 4, "4B to 24B")],
+)  # fmt: skip
+def test_size_text(first: int, last: int, text: str) -> None:
+    assert size_text(first, last) == text
+
+
+def test_range_slider_drag_and_keys(qt_app: QApplication) -> None:
+    slider = RangeSlider(7)
+    slider.resize(218, 24)  # 7 stops, 200 px apart in total: about 33 px each
+    slider.show()
+    moved: list[tuple[int, int]] = []
+    changed: list[tuple[int, int]] = []
+
+    def on_moved(low: int, high: int) -> None:
+        moved.append((low, high))
+
+    def on_changed(low: int, high: int) -> None:
+        changed.append((low, high))
+
+    slider.range_moved.connect(on_moved)
+    slider.range_changed.connect(on_changed)
+    y = slider.height() // 2
+    # Drag the low handle (left end) to the third stop.
+    QTest.mousePress(slider, Qt.MouseButton.LeftButton, pos=QPoint(9, y))
+    QTest.mouseMove(slider, QPoint(9 + 67, y))
+    QTest.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=QPoint(9 + 67, y))
+    assert slider.values() == (2, 6)
+    assert changed == [(2, 6)]
+    assert moved[-1] == (2, 6)
+    # Keyboard: the last-used handle is the low one; Up/Down switches to the high one.
+    slider.setFocus()
+    QTest.keyClick(slider, Qt.Key.Key_Down)
+    QTest.keyClick(slider, Qt.Key.Key_Left)
+    assert slider.values() == (2, 5)
+    slider.set_values(4, 1)  # never crosses
+    assert slider.values() == (4, 4)
+    slider.close()
     assert qt_app is not None
 
 
