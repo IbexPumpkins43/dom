@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 from dom.ui.controller import spawn
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.protocols import ServerState
-from dom.ui.widgets import Banner, ChatArea, ChatInput, ModelPicker, Sidebar
+from dom.ui.theme import BRASA
+from dom.ui.titlebar import TitleBar, WindowFrame
+from dom.ui.widgets import Banner, ChatArea, ChatInput, ElidedLabel, ModelPicker, Sidebar
 
 if TYPE_CHECKING:
     import asyncio
@@ -61,6 +63,12 @@ class MainWindow(QMainWindow):
         self._server_state = ServerState.STOPPED
         self._streaming = False
         self.setWindowTitle("dom")
+        # dom draws its own title bar in the app's colours (ui/titlebar.py). The min/max hints
+        # keep the window minimisable from the taskbar and snappable on Windows.
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
+        self._title_bar = TitleBar(BRASA)
+        self._title_bar.set_title("New chat")
         self.resize(1180, 780)
         self.setMinimumSize(760, 480)
 
@@ -68,7 +76,7 @@ class MainWindow(QMainWindow):
         self._picker = ModelPicker()
         self._server_label = QLabel()
         self._server_label.setObjectName("serverLabel")
-        self._details_label = QLabel()
+        self._details_label = ElidedLabel()
         self._details_label.setObjectName("detailsLabel")
         self._banner = Banner()
         self._chat = ChatArea()
@@ -102,8 +110,8 @@ class MainWindow(QMainWindow):
         footer_layout.setContentsMargins(4, 8, 4, 0)
         footer_layout.addWidget(self._picker)
         footer_layout.addSpacing(12)
-        footer_layout.addWidget(self._details_label)
-        footer_layout.addStretch(1)
+        footer_layout.addWidget(self._details_label, 1)
+        footer_layout.addSpacing(12)
         footer_layout.addWidget(self._server_label)
 
         bottom = QWidget()
@@ -128,13 +136,14 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self._chat, 1)
         main_layout.addLayout(bottom_row)
 
-        central = QWidget()
-        layout = QHBoxLayout(central)
+        body = QWidget()
+        layout = QHBoxLayout(body)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._sidebar)
         layout.addWidget(main, 1)
-        self.setCentralWidget(central)
+        self._frame = WindowFrame(self._title_bar, body)
+        self.setCentralWidget(self._frame)
 
     def attach(self, controller: ChatController, library: LibraryController) -> None:
         """Connect UI events to the chat and library controllers."""
@@ -186,8 +195,10 @@ class MainWindow(QMainWindow):
     def show_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
     ) -> None:
-        """Fill the sidebar."""
+        """Fill the sidebar, and show the open chat's title in the title bar."""
         self._sidebar.set_conversations(conversations, current_id)
+        current = next((c for c in conversations if c.id == current_id), None)
+        self._title_bar.set_title(current.title if current is not None else "New chat")
 
     def show_messages(self, messages: Sequence[Message]) -> None:
         """Show a conversation."""
@@ -230,7 +241,7 @@ class MainWindow(QMainWindow):
 
     def show_model_details(self, text: str | None) -> None:
         """Show what the model runs on (or what dom is doing to prepare it)."""
-        self._details_label.setText(text or "")
+        self._details_label.set_full_text(text or "")
 
     def show_hardware(self, summary: str | None) -> None:
         """Put the detected hardware in tooltips."""
@@ -249,6 +260,14 @@ class MainWindow(QMainWindow):
             return
         self._input.clear()
         self._run(controller.send(text))
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 -- Qt override
+        """Keep the title bar and resize border in step with maximise/restore."""
+        if event.type() == QEvent.Type.WindowStateChange:
+            maximized = self.isMaximized()
+            self._title_bar.update_state(maximized)
+            self._frame.set_maximized(maximized)
+        super().changeEvent(event)
 
     def _on_input_focus(self, focused: bool) -> None:
         self._composer.setProperty("focused", focused)

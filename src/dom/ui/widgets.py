@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 REPLY_REDRAW_MS = 50
 INPUT_MAX_LINES = 8
 SIDEBAR_WIDTH = 260
+MODEL_PICKER_MIN_WIDTH = 220
 CHAT_MAX_WIDTH = 860
 USER_BUBBLE_MAX_WIDTH = 620
 _BUBBLE_H_PADDING = 28
@@ -53,6 +54,37 @@ _STATUS_DOTS: dict[ModelStatus, str] = {
     ModelStatus.LOADED: "●",
     ModelStatus.FAILED: "✕",
 }
+
+
+class ElidedLabel(QLabel):
+    """A one-line label that shortens its text with "…" instead of growing or overlapping."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        """Create the label with ``text``."""
+        super().__init__(parent)
+        self._full = text
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+        self._apply()
+
+    def set_full_text(self, text: str) -> None:
+        """Change the text (shown shortened if it does not fit)."""
+        self._full = text
+        self.setToolTip(text if text else "")
+        self._apply()
+
+    def full_text(self) -> str:
+        """The text before shortening."""
+        return self._full
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
+        """Re-shorten for the new width."""
+        super().resizeEvent(event)
+        self._apply()
+
+    def _apply(self) -> None:
+        metrics = self.fontMetrics()
+        self.setText(metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, self.width()))
 
 
 class ChatInput(QPlainTextEdit):
@@ -277,14 +309,12 @@ class _ConversationRow(QWidget):
 
     def __init__(self, title: str, *, current: bool) -> None:
         super().__init__()
-        self._title = title
         self._current = current
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 0, 2, 0)
         layout.setSpacing(4)
-        self._label = QLabel()
+        self._label = ElidedLabel(title)
         self._label.setObjectName("conversationTitle")
-        self._label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self._label, 1)
         self._delete = QToolButton()
         self._delete.setObjectName("deleteChat")
@@ -304,15 +334,6 @@ class _ConversationRow(QWidget):
         """Hide the delete button again (unless this is the open chat)."""
         self._delete.setVisible(self._current)
         super().leaveEvent(event)
-
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
-        """Elide long titles to the available width."""
-        super().resizeEvent(event)
-        width = max(0, self._label.width())
-        elided = self._label.fontMetrics().elidedText(
-            self._title, Qt.TextElideMode.ElideRight, width
-        )
-        self._label.setText(elided)
 
 
 class Sidebar(QFrame):
@@ -421,7 +442,7 @@ class ModelPicker(QComboBox):
         """Create an empty picker."""
         super().__init__(parent)
         self.setObjectName("modelPicker")
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(MODEL_PICKER_MIN_WIDTH)
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.activated.connect(self._on_activated)
         self._has_placeholder = True

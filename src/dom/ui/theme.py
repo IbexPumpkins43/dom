@@ -119,6 +119,10 @@ QPushButton {{
 QPushButton:hover {{ background: {t.base02}; }}
 QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 
+#windowFrame {{ background: {t.base01}; }}
+#titleBar {{ background: {t.base01}; border-bottom: 1px solid {t.base02}; }}
+#titleBarName {{ color: {t.base09}; font-weight: 700; font-size: 13px; letter-spacing: 1px; }}
+#titleBarTitle {{ color: {t.base04}; font-size: 12px; }}
 #sidebar {{ background: {t.base01}; border-right: 1px solid {t.base02}; }}
 #sidebarHeading {{
     color: {t.base04};
