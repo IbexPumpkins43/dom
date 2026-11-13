@@ -37,7 +37,12 @@ from dom.hardware.probe import read_usage
 from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.main_window import MainWindow
-from dom.ui.profile_widgets import ProfileButton, ProfileDialog, avatar_pixmap
+from dom.ui.profile_widgets import (
+    BUTTON_NAME_MAX_CHARS,
+    ProfileButton,
+    ProfileDialog,
+    avatar_pixmap,
+)
 from dom.ui.theme import (
     BRASA,
     UI_FONT_FAMILY,
@@ -230,17 +235,19 @@ def _profile(profile_id: str, name: str, colour: ProfileColour) -> Profile:
 def test_profile_button_menu(qt_app: QApplication) -> None:
     button = ProfileButton()
     home = _profile("p1", "Home", ProfileColour.ORANGE)
-    work = _profile("p2", "A very long profile name indeed", ProfileColour.BLUE)
+    work = _profile("p2", "A very long profile name indeed, much longer", ProfileColour.BLUE)
     button.set_profiles([home], home)
     assert button.text() == "Home"
     assert button.menu_actions() == [
         "Home", "---", "Edit this profile…", "Add profile…", "Delete this profile…",
     ]  # fmt: skip
-    assert not next(a for a in button.menu().actions() if a.text().startswith("Delete")).isEnabled()
+    assert not next(
+        a for a in button.profile_menu().actions() if a.text().startswith("Delete")
+    ).isEnabled()
 
     button.set_profiles([home, work], work)
     assert button.text().endswith("…")
-    assert len(button.text()) <= 18  # noqa: PLR2004
+    assert len(button.text()) <= BUTTON_NAME_MAX_CHARS
     seen: list[str] = []
     button.switch_requested.connect(seen.append)
     button.add_requested.connect(lambda: seen.append("add"))
@@ -252,14 +259,21 @@ def test_profile_button_menu(qt_app: QApplication) -> None:
     assert qt_app is not None
 
 
-def test_profile_button_sits_left_of_the_window_buttons(qt_app: QApplication) -> None:
-    bar = TitleBar(BRASA)
-    button = ProfileButton()
-    bar.add_widget(button)
-    layout = bar.layout()
-    assert layout is not None
-    assert layout.indexOf(button) == layout.indexOf(bar.minimize_button) - 1
-    assert qt_app is not None
+def test_profile_button_is_at_the_bottom_of_the_sidebar(qt_app: QApplication) -> None:
+    window = MainWindow(on_closed=lambda: None)
+    home = _profile("p1", "Home", ProfileColour.ORANGE)
+    window.show_profiles([home], home)
+    window.resize(1000, 700)
+    window.show()
+    qt_app.processEvents()
+    sidebar = window.findChild(Sidebar)
+    assert sidebar is not None
+    button = window.profile_button()
+    assert button.parentWidget() is sidebar
+    usage_bottom = sidebar.usage.geometry().bottom()
+    assert button.geometry().top() > usage_bottom  # under the CPU/memory panel
+    assert sidebar.height() - button.geometry().bottom() < 20  # noqa: PLR2004 -- at the bottom
+    window.close()
 
 
 def test_avatar_is_a_coloured_circle(qt_app: QApplication) -> None:
@@ -386,3 +400,18 @@ def test_ui_font_beats_per_widget_type_theme_fonts(qt_app: QApplication) -> None
     finally:
         for cls in classes:
             QApplication.setFont(QApplication.font(), cls)  # pyright: ignore[reportArgumentType] -- as above
+
+
+def test_profile_menu_opens_above_the_button(qt_app: QApplication) -> None:
+    button = ProfileButton()
+    home = _profile("p1", "Home", ProfileColour.ORANGE)
+    button.set_profiles([home], home)
+    button.show()
+    button.move(100, 500)
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+    menu = button.profile_menu()
+    assert menu.isVisible()
+    assert menu.geometry().bottom() < button.mapToGlobal(button.rect().topLeft()).y()
+    menu.hide()
+    button.close()
+    assert qt_app is not None

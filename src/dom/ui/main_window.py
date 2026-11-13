@@ -164,6 +164,9 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(body)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self._profile_button = ProfileButton()
+        self._profile_button.hide()  # until the profiles are known
+        self._sidebar.add_bottom_widget(self._profile_button)
         layout.addWidget(self._sidebar)
         layout.addWidget(main, 1)
         self._frame = WindowFrame(self._build_title_bar(), body)
@@ -173,9 +176,6 @@ class MainWindow(QMainWindow):
         self._theme = BRASA
         self._title_bar = TitleBar(self._theme)
         self._title_bar.set_title("New chat")
-        self._profile_button = ProfileButton()
-        self._profile_button.hide()  # until the profiles are known
-        self._title_bar.add_widget(self._profile_button)
         return self._title_bar
 
     def attach(
@@ -296,7 +296,7 @@ class MainWindow(QMainWindow):
     # ---- ProfileView ---------------------------------------------------------------------
 
     def show_profiles(self, profiles: Sequence[Profile], current: Profile) -> None:
-        """Show the current profile in the title bar and its menu, in the profile's colours."""
+        """Show the current profile in the sidebar and its menu, in the profile's colours."""
         self._profile_button.set_profiles(profiles, current)
         self._profile_button.show()
         self._apply_look(theme_for(current.settings))
@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
         self._chat.set_logo_colour(theme.base09)
 
     def profile_button(self) -> ProfileButton:
-        """The profile switcher in the title bar."""
+        """The profile switcher at the bottom of the sidebar."""
         return self._profile_button
 
     # ---- events --------------------------------------------------------------------------

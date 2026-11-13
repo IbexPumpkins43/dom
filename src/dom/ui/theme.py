@@ -185,15 +185,15 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #titleBarTitle {{ color: {t.base04}; font-size: 12px; }}
 #profileButton {{
     background: transparent;
-    color: {t.base05};
+    color: {t.base06};
     border: none;
     border-radius: 4px;
-    padding: 3px 8px 3px 4px;
-    margin-right: 6px;
-    font-size: 12px;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
 }}
 #profileButton:hover, #profileButton:pressed {{ background: {t.base02}; }}
-#profileButton::menu-indicator {{ image: none; width: 0; }}
 QMenu {{ background: {t.base01}; color: {t.base05}; border: 1px solid {t.base03}; padding: 4px; }}
 QMenu::item {{ padding: 6px 18px 6px 8px; border-radius: 3px; }}
 QMenu::item:selected {{ background: {t.base02}; }}

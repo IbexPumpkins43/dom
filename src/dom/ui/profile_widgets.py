@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -36,10 +35,11 @@ if TYPE_CHECKING:
     from dom.domain import Profile
     from dom.ui.theme import Base16
 
-AVATAR_SIZE = 20
+AVATAR_SIZE = 24
 MENU_AVATAR_SIZE = 18
 SWATCH_SIZE = 26
-BUTTON_NAME_MAX_CHARS = 18
+BUTTON_NAME_MAX_CHARS = 26  # fits the sidebar
+MENU_GAP = 4
 _ICON_PIXEL_RATIO = 2.0  # draw icons at 2x so they stay sharp on high-DPI screens
 
 
@@ -74,8 +74,11 @@ def _short(name: str, limit: int = BUTTON_NAME_MAX_CHARS) -> str:
     return name if len(name) <= limit else name[: limit - 1].rstrip() + "…"
 
 
-class ProfileButton(QToolButton):
-    """The current profile's avatar and name; click for the profile menu (like a browser's)."""
+class ProfileButton(QPushButton):
+    """The current profile's avatar and name, at the bottom of the sidebar.
+
+    Click it for the profile menu (like a browser's), which opens upwards.
+    """
 
     switch_requested = Signal(str)
     add_requested = Signal()
@@ -86,14 +89,21 @@ class ProfileButton(QToolButton):
         """Create the button with an empty menu; ``set_profiles`` fills it."""
         super().__init__(parent)
         self.setObjectName("profileButton")
-        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(QSize(AVATAR_SIZE, AVATAR_SIZE))
-        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._menu = QMenu(self)
-        self.setMenu(self._menu)
+        self.clicked.connect(self.show_menu)
         self.setToolTip("Profiles")
+
+    def profile_menu(self) -> QMenu:
+        """The menu of profiles and profile actions."""
+        return self._menu
+
+    def show_menu(self) -> None:
+        """Open the menu above the button, left-aligned with it."""
+        height = self._menu.sizeHint().height()
+        self._menu.popup(self.mapToGlobal(QPoint(0, -height - MENU_GAP)))
 
     def menu_actions(self) -> list[str]:
         """The menu's item texts, in order (separators as ``---``); for tests."""

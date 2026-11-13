@@ -479,7 +479,12 @@ class Sidebar(QFrame):
         layout.addWidget(self._list, 1)
         self.usage = UsagePanel()
         layout.addWidget(self.usage)
+        self._layout = layout
         self._titles: dict[str, str] = {}
+
+    def add_bottom_widget(self, widget: QWidget) -> None:
+        """Add ``widget`` at the very bottom, under the CPU/memory panel (the profile button)."""
+        self._layout.addWidget(widget)
 
     def set_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
