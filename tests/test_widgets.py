@@ -17,12 +17,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dom.domain import Conversation, Message, ModelInfo, ModelStatus, Role
+from dom.config.settings import GenerationSettings
+from dom.domain import (
+    Conversation,
+    Message,
+    ModelInfo,
+    ModelStatus,
+    Profile,
+    ProfileColour,
+    ProfileSettings,
+    Role,
+)
 from dom.hardware import MemoryStatus, SystemUsage
 from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
 from dom.ui.assets import logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
+from dom.ui.profile_widgets import ProfileButton, ProfileDialog, avatar_pixmap
 from dom.ui.theme import BRASA, apply_theme
 from dom.ui.titlebar import TitleBar, edges_at
 from dom.ui.widgets import ChatArea, ModelPicker, Sidebar, UsagePanel
@@ -197,4 +208,96 @@ def test_logo_shows_only_on_empty_chats(qt_app: QApplication) -> None:
     assert area.logo_visible()
     area.begin_reply()
     assert not area.logo_visible()
+    assert qt_app is not None
+
+
+def _profile(profile_id: str, name: str, colour: ProfileColour) -> Profile:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return Profile(profile_id, ProfileSettings(name, colour), now, now)
+
+
+def test_profile_button_menu(qt_app: QApplication) -> None:
+    button = ProfileButton()
+    home = _profile("p1", "Home", ProfileColour.ORANGE)
+    work = _profile("p2", "A very long profile name indeed", ProfileColour.BLUE)
+    button.set_profiles([home], home)
+    assert button.text() == "Home"
+    assert button.menu_actions() == [
+        "Home", "---", "Edit this profile…", "Add profile…", "Delete this profile…",
+    ]  # fmt: skip
+    assert not next(a for a in button.menu().actions() if a.text().startswith("Delete")).isEnabled()
+
+    button.set_profiles([home, work], work)
+    assert button.text().endswith("…")
+    assert len(button.text()) <= 18  # noqa: PLR2004
+    seen: list[str] = []
+    button.switch_requested.connect(seen.append)
+    button.add_requested.connect(lambda: seen.append("add"))
+    button.edit_requested.connect(lambda: seen.append("edit"))
+    button.delete_requested.connect(lambda: seen.append("delete"))
+    for text in ("Home", "Add profile…", "Edit this profile…", "Delete this profile…"):
+        button.trigger(text)
+    assert seen == ["p1", "add", "edit", "delete"]
+    assert qt_app is not None
+
+
+def test_profile_button_sits_left_of_the_window_buttons(qt_app: QApplication) -> None:
+    bar = TitleBar(BRASA)
+    button = ProfileButton()
+    bar.add_widget(button)
+    layout = bar.layout()
+    assert layout is not None
+    assert layout.indexOf(button) == layout.indexOf(bar.minimize_button) - 1
+    assert qt_app is not None
+
+
+def test_avatar_is_a_coloured_circle(qt_app: QApplication) -> None:
+    pixmap = avatar_pixmap(ProfileSettings("sam", ProfileColour.GREEN), 20, device_pixel_ratio=2)
+    image = pixmap.toImage()
+    assert image.width() == 40  # noqa: PLR2004
+    assert image.pixelColor(2, 20).name().upper() == BRASA.base0B.upper()  # left edge: fill
+    assert image.pixelColor(0, 0).alpha() == 0  # corner: outside the circle
+    assert qt_app is not None
+
+
+def test_profile_dialog_round_trip(qt_app: QApplication) -> None:
+    initial = ProfileSettings(
+        "Work",
+        ProfileColour.CYAN,
+        "Be brief.",
+        GenerationSettings(temperature=0.35, max_reply_tokens=None, thinking=False),
+    )
+    saved: list[ProfileSettings] = []
+    dialog = ProfileDialog(None, initial, saved.append, adding=False)
+    assert dialog.settings() == initial  # custom temperature kept as a "Custom" choice
+    assert dialog.save_button.text() == "Save"
+
+    dialog.name_edit.setText("   ")
+    assert not dialog.save_button.isEnabled()
+    dialog.name_edit.setText("Office")
+    assert dialog.save_button.isEnabled()
+    dialog.style_combo.setCurrentIndex(1)  # precise
+    dialog.length_combo.setCurrentIndex(0)  # short
+    dialog.thinking_check.setChecked(True)
+    QTest.mouseClick(dialog.save_button, Qt.MouseButton.LeftButton)
+    assert saved == [
+        ProfileSettings(
+            "Office",
+            ProfileColour.CYAN,
+            "Be brief.",
+            GenerationSettings(temperature=0.2, max_reply_tokens=1024, thinking=True),
+        )
+    ]
+    assert qt_app is not None
+
+
+def test_add_profile_dialog_cancel_saves_nothing(qt_app: QApplication) -> None:
+    saved: list[ProfileSettings] = []
+    dialog = ProfileDialog(
+        None, ProfileSettings("Profile 2", ProfileColour.RED), saved.append, adding=True
+    )
+    assert dialog.windowTitle() == "Add profile"
+    assert dialog.save_button.text() == "Add profile"
+    QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
+    assert saved == []
     assert qt_app is not None

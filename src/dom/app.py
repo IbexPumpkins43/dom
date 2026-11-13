@@ -34,18 +34,20 @@ from dom.downloads.library import ModelLibrary
 from dom.hardware import HardwareProbe
 from dom.hardware.probe import read_memory, read_usage
 from dom.selftest import run_self_test
-from dom.storage import SqliteConversationRepository, StorageError
+from dom.storage import SqliteStore, StorageError
 from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
 from dom.ui.dialogs import show_message
 from dom.ui.library import LibraryController
 from dom.ui.main_window import MainWindow
+from dom.ui.profiles import ProfileController, initial_profile
 from dom.ui.theme import apply_theme
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from dom.backend import InferenceService
+    from dom.domain import Profile
 
 logger = logging.getLogger("dom")
 
@@ -125,11 +127,12 @@ def build_service(paths: AppPaths, defaults: InferenceSettings) -> InferenceServ
 
 
 async def _run(
-    service: InferenceService, repo: SqliteConversationRepository, paths: AppPaths
+    service: InferenceService, store: SqliteStore, profile: Profile, paths: AppPaths
 ) -> int:
     closed = asyncio.Event()
     window = MainWindow(on_closed=closed.set, usage_reader=read_usage)
-    controller = ChatController(service, repo, window, EngineInstaller(paths.bin_dir))
+    controller = ChatController(service, store, window, EngineInstaller(paths.bin_dir), profile)
+    profiles = ProfileController(store, window, controller)
     probe = HardwareProbe()
     library = LibraryController(
         CATALOG,
@@ -137,7 +140,7 @@ async def _run(
         hardware=lambda: service.hardware_profile() or probe.basic(),
         on_installed=controller.models_changed,
     )
-    window.attach(controller, library)
+    window.attach(controller, library, profiles)
     window.show()
 
     loop = asyncio.get_running_loop()
@@ -153,6 +156,7 @@ async def _run(
     wake.timeout.connect(lambda: None)
 
     tasks: set[asyncio.Task[None]] = set()
+    spawn(profiles.startup(), tasks)
     spawn(controller.startup(), tasks)
     await closed.wait()
     wake.stop()
@@ -178,7 +182,8 @@ def main() -> int:
     app.setQuitOnLastWindowClosed(False)
 
     try:
-        repo = SqliteConversationRepository(paths.db_path)
+        store = SqliteStore(paths.db_path)
+        profile = initial_profile(store)
     except StorageError as exc:
         logger.exception("Could not open the database")
         show_message(None, "dom", f"dom could not open its chat history.\n\n{exc}")
@@ -188,6 +193,8 @@ def main() -> int:
     # Last-resort cleanup if the event loop dies with an exception: never leave the server.
     atexit.register(service.stop_now)
     try:
-        return asyncio.run(_run(service, repo, paths), loop_factory=lambda: qasync.QEventLoop(app))
+        return asyncio.run(
+            _run(service, store, profile, paths), loop_factory=lambda: qasync.QEventLoop(app)
+        )
     finally:
         service.stop_now()

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 
     from dom.backend.protocols import InferenceService
+    from dom.config.settings import GenerationSettings
     from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
     from dom.hardware import HardwareProfile
 
@@ -65,10 +66,13 @@ class LazyInferenceService:
         return await self._require().reload_models()
 
     def stream_chat(
-        self, model_id: str, messages: Sequence[ChatMessage]
+        self,
+        model_id: str,
+        messages: Sequence[ChatMessage],
+        settings: GenerationSettings | None = None,
     ) -> AsyncGenerator[ChatDelta]:
         """Stream a reply from the real service."""
-        return self._require().stream_chat(model_id, messages)
+        return self._require().stream_chat(model_id, messages, settings)
 
     def _require(self) -> InferenceService:
         if self._inner is None:

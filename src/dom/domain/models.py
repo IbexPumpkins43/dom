@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from dom.config.settings import GenerationSettings
+
 if TYPE_CHECKING:
     from datetime import datetime
+
+PROFILE_NAME_MAX_CHARS = 40
 
 
 class Role(StrEnum):
@@ -25,6 +29,50 @@ class ModelStatus(StrEnum):
     LOADING = "loading"
     LOADED = "loaded"
     FAILED = "failed"
+
+
+class ProfileColour(StrEnum):
+    """The colour of a profile's avatar (drawn from the theme's accent colours)."""
+
+    ORANGE = "orange"
+    RED = "red"
+    YELLOW = "yellow"
+    GREEN = "green"
+    CYAN = "cyan"
+    BLUE = "blue"
+    MAGENTA = "magenta"
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileSettings:
+    """The parts of a profile the user edits."""
+
+    name: str
+    colour: ProfileColour
+    system_prompt: str = ""
+    generation: GenerationSettings = field(default_factory=GenerationSettings)
+
+    @property
+    def initial(self) -> str:
+        """The letter shown on the profile's avatar."""
+        name = self.name.strip()
+        return name[0].upper() if name else "?"
+
+
+@dataclass(frozen=True, slots=True)
+class Profile:
+    """A profile: its own chats, settings and last-used model (like a browser profile)."""
+
+    id: str
+    settings: ProfileSettings
+    created_at: datetime
+    last_used_at: datetime
+    last_model: str | None = None
+
+    @property
+    def name(self) -> str:
+        """The profile's name."""
+        return self.settings.name
 
 
 @dataclass(frozen=True, slots=True)

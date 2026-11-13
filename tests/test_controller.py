@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from dom.domain import ModelStatus, Role
-from dom.storage import SqliteConversationRepository
+from dom.storage import SqliteStore
 from dom.ui.controller import ChatController, make_title
+from dom.ui.profiles import initial_profile
 from dom.ui.protocols import ServerState
 from tests.fakes import FakeEngine, FakeInferenceService, RecordingView
 
@@ -32,8 +33,8 @@ def view() -> RecordingView:
 async def controller(
     tmp_path: Path, service: FakeInferenceService, view: RecordingView
 ) -> AsyncIterator[ChatController]:
-    repo = SqliteConversationRepository(tmp_path / "dom.sqlite3")
-    ctrl = ChatController(service, repo, view, FakeEngine(service))
+    repo = SqliteStore(tmp_path / "dom.sqlite3")
+    ctrl = ChatController(service, repo, view, FakeEngine(service), initial_profile(repo))
     yield ctrl
     await ctrl.shutdown()
 
@@ -90,8 +91,8 @@ async def test_failed_engine_download_explains_and_allows_retry(
 ) -> None:
     service.engine_missing = True
     engine = FakeEngine(service, error="GitHub could not be reached")
-    repo = SqliteConversationRepository(tmp_path / "dom.sqlite3")
-    ctrl = ChatController(service, repo, view, engine)
+    repo = SqliteStore(tmp_path / "dom.sqlite3")
+    ctrl = ChatController(service, repo, view, engine, initial_profile(repo))
     await ctrl.startup()
     await ctrl.install_engine()
     state, message = view.server_states[-1]
@@ -167,7 +168,7 @@ async def test_send_streams_and_saves_both_messages(
     assert view.can_send
     assert not view.streaming
 
-    reopened = SqliteConversationRepository(tmp_path / "dom.sqlite3")
+    reopened = SqliteStore(tmp_path / "dom.sqlite3")
     saved = reopened.get_messages(view.conversations[0].id)
     reopened.close()
     assert [m.content for m in saved] == ["Hi there\nsecond line", "Hello there!"]

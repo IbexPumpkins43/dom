@@ -117,6 +117,7 @@ class TitleBar(QWidget):
         self._title.setObjectName("titleBarTitle")
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._title, 1)
+        self._layout = layout
         self.minimize_button = CaptionButton("minimize", theme)
         self.maximize_button = CaptionButton("maximize", theme)
         self.close_button = CaptionButton("close", theme)
@@ -127,6 +128,10 @@ class TitleBar(QWidget):
         self.minimize_button.clicked.connect(lambda: self.window().showMinimized())
         self.maximize_button.clicked.connect(self.toggle_maximized)
         self.close_button.clicked.connect(lambda: self.window().close())
+
+    def add_widget(self, widget: QWidget) -> None:
+        """Put ``widget`` (e.g. the profile button) just left of the window buttons."""
+        self._layout.insertWidget(self._layout.indexOf(self.minimize_button), widget)
 
     def set_title(self, text: str) -> None:
         """The text in the middle of the bar (e.g. the open chat's title)."""

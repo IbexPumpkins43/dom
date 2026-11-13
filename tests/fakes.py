@@ -30,7 +30,8 @@ TEST_HARDWARE = HardwareProfile(
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
-    from dom.domain import Conversation, Message
+    from dom.config.settings import GenerationSettings
+    from dom.domain import Conversation, Message, Profile
     from dom.ui.protocols import ServerState
 
 
@@ -56,6 +57,9 @@ class FakeInferenceService:
     stopped: bool = False
     stream_closed: bool = False
     received: list[list[ChatMessage]] = field(default_factory=list[list[ChatMessage]])
+    received_settings: list[GenerationSettings | None] = field(
+        default_factory=list["GenerationSettings | None"]
+    )
     _loaded: str | None = None
     _crash: asyncio.Future[int | None] | None = None
     first_token: asyncio.Event = field(default_factory=asyncio.Event)
@@ -116,9 +120,13 @@ class FakeInferenceService:
         return await self.list_models()
 
     async def stream_chat(
-        self, model_id: str, messages: Sequence[ChatMessage]
+        self,
+        model_id: str,
+        messages: Sequence[ChatMessage],
+        settings: GenerationSettings | None = None,
     ) -> AsyncGenerator[ChatDelta]:
         self.received.append(list(messages))
+        self.received_settings.append(settings)
         try:
             for i, delta in enumerate(self.reply):
                 if self.stream_error_after is not None and i >= self.stream_error_after:
@@ -243,3 +251,19 @@ class RecordingView:
 
     def show_hardware(self, summary: str | None) -> None:
         self.hardware = summary
+
+
+@dataclass
+class RecordingProfileView:
+    """A ``ProfileView`` that records what it was told to show."""
+
+    profiles: list[Profile] = field(default_factory=list["Profile"])
+    current: Profile | None = None
+    errors: list[str] = field(default_factory=list[str])
+
+    def show_profiles(self, profiles: Sequence[Profile], current: Profile) -> None:
+        self.profiles = list(profiles)
+        self.current = current
+
+    def show_error(self, message: str) -> None:
+        self.errors.append(message)

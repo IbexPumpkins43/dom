@@ -11,3 +11,7 @@ class SchemaVersionError(StorageError):
 
 class ConversationNotFoundError(StorageError):
     """A conversation id does not exist."""
+
+
+class ProfileNotFoundError(StorageError):
+    """A profile id does not exist."""

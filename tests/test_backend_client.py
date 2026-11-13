@@ -19,6 +19,7 @@ from dom.backend import (
     ServerUnavailableError,
 )
 from dom.backend.client import parse_models
+from dom.config.settings import GenerationSettings
 from dom.domain import ChatDelta, ChatMessage, ModelInfo, ModelStatus, Role
 
 if TYPE_CHECKING:
@@ -271,6 +272,19 @@ async def test_stream_chat_assembles_full_reply(router: FakeRouter) -> None:
         "stream": True,
         "messages": [{"role": "user", "content": "Hi"}],
     }
+    await client.aclose()
+
+
+async def test_stream_chat_sends_generation_settings(router: FakeRouter) -> None:
+    router.chat_lines = [_chunk(content="Hi"), "data: [DONE]"]
+    client = _client(router)
+    settings = GenerationSettings(temperature=0.2, max_reply_tokens=1024, thinking=False)
+    await _collect(client.stream_chat("m", [ChatMessage(Role.USER, "x")], settings))
+    _method, _path, body = router.requests[-1]
+    assert _is_object(body)
+    assert body["temperature"] == 0.2  # noqa: PLR2004
+    assert body["max_tokens"] == 1024  # noqa: PLR2004
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
     await client.aclose()
 
 

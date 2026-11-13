@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor, QPalette
 
+from dom.domain import ProfileColour
+
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
@@ -60,6 +62,19 @@ BRASA = Base16(
     base0E="#E68AA2",
     base0F="#5A3A28",
 )
+
+
+def profile_colour(t: Base16, colour: ProfileColour) -> str:
+    """The scheme's accent colour for a profile avatar colour."""
+    return {
+        ProfileColour.ORANGE: t.base09,
+        ProfileColour.RED: t.base08,
+        ProfileColour.YELLOW: t.base0A,
+        ProfileColour.GREEN: t.base0B,
+        ProfileColour.CYAN: t.base0C,
+        ProfileColour.BLUE: t.base0D,
+        ProfileColour.MAGENTA: t.base0E,
+    }[colour]
 
 
 def build_palette(t: Base16) -> QPalette:
@@ -130,6 +145,22 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #titleBar {{ background: {t.base01}; border-bottom: 1px solid {t.base02}; }}
 #titleBarName {{ color: {t.base09}; font-weight: 700; font-size: 13px; letter-spacing: 1px; }}
 #titleBarTitle {{ color: {t.base04}; font-size: 12px; }}
+#profileButton {{
+    background: transparent;
+    color: {t.base05};
+    border: none;
+    border-radius: 4px;
+    padding: 3px 8px 3px 4px;
+    margin-right: 6px;
+    font-size: 12px;
+}}
+#profileButton:hover, #profileButton:pressed {{ background: {t.base02}; }}
+#profileButton::menu-indicator {{ image: none; width: 0; }}
+QMenu {{ background: {t.base01}; color: {t.base05}; border: 1px solid {t.base03}; padding: 4px; }}
+QMenu::item {{ padding: 6px 18px 6px 8px; border-radius: 3px; }}
+QMenu::item:selected {{ background: {t.base02}; }}
+QMenu::item:disabled {{ color: {t.base03}; }}
+QMenu::separator {{ height: 1px; background: {t.base02}; margin: 4px 2px; }}
 #sidebar {{ background: {t.base01}; border-right: 1px solid {t.base02}; }}
 #sidebarHeading {{
     color: {t.base04};
@@ -225,6 +256,34 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 
 QDialog, #dialogContent {{ background: {t.base00}; }}
 #dialogMessage {{ color: {t.base05}; font-size: 13px; }}
+#fieldLabel {{ color: {t.base06}; font-weight: 600; font-size: 13px; }}
+#fieldHint {{ color: {t.base04}; font-size: 12px; }}
+#profileDialog QLineEdit, #profileDialog QPlainTextEdit, #profileDialog QComboBox {{
+    background: {t.base01};
+    color: {t.base06};
+    border: 1px solid {t.base03};
+    border-radius: 4px;
+    padding: 5px 8px;
+    selection-background-color: {t.base02};
+}}
+#profileDialog QLineEdit:focus, #profileDialog QPlainTextEdit:focus,
+#profileDialog QComboBox:focus {{ border-color: {t.base09}; }}
+#profileDialog QComboBox QAbstractItemView {{
+    background: {t.base01};
+    color: {t.base05};
+    selection-background-color: {t.base02};
+    border: 1px solid {t.base03};
+}}
+#profileDialog QCheckBox {{ color: {t.base06}; font-size: 13px; spacing: 8px; }}
+#profileDialog QCheckBox::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t.base03};
+    border-radius: 3px;
+    background: {t.base01};
+}}
+#profileDialog QCheckBox::indicator:hover {{ border-color: {t.base04}; }}
+#profileDialog QCheckBox::indicator:checked {{ background: {t.base09}; border-color: {t.base09}; }}
 #dangerButton {{ background: {t.base08}; color: {t.base00}; border: none; font-weight: 600; }}
 #dangerButton:hover {{ background: {t.base09}; }}
 #primaryButton {{ background: {t.base09}; color: {t.base00}; border: none; font-weight: 600; }}

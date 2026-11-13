@@ -1,6 +1,7 @@
 """Domain layer: frozen dataclasses and enums shared by every other layer."""
 
 from dom.domain.models import (
+    PROFILE_NAME_MAX_CHARS,
     ChatDelta,
     ChatMessage,
     Conversation,
@@ -10,10 +11,14 @@ from dom.domain.models import (
     ModelInfo,
     ModelMemory,
     ModelStatus,
+    Profile,
+    ProfileColour,
+    ProfileSettings,
     Role,
 )
 
 __all__ = [
+    "PROFILE_NAME_MAX_CHARS",
     "ChatDelta",
     "ChatMessage",
     "Conversation",
@@ -23,5 +28,8 @@ __all__ = [
     "ModelInfo",
     "ModelMemory",
     "ModelStatus",
+    "Profile",
+    "ProfileColour",
+    "ProfileSettings",
     "Role",
 ]

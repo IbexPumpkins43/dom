@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from dom.backend.presets import PresetFile
     from dom.backend.process import LlamaServerProcess
-    from dom.config import InferenceSettings
+    from dom.config import GenerationSettings, InferenceSettings
     from dom.domain import ChatDelta, ChatMessage, ModelMemory
     from dom.hardware import HardwareProfile, MemoryStatus
     from dom.tuning import LlamaBench, ModelPlan
@@ -162,10 +162,13 @@ class LlamaInferenceService:
         return self._loaded(loaded, plan)
 
     def stream_chat(
-        self, model_id: str, messages: Sequence[ChatMessage]
+        self,
+        model_id: str,
+        messages: Sequence[ChatMessage],
+        settings: GenerationSettings | None = None,
     ) -> AsyncGenerator[ChatDelta]:
         """Stream a reply; stop iterating or cancel to stop generation."""
-        return self._require_client().stream_chat(model_id, messages)
+        return self._require_client().stream_chat(model_id, messages, settings)
 
     # ---- tuning steps --------------------------------------------------------------------
 

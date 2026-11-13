@@ -7,10 +7,11 @@ from dom.config.binary import (
     find_server_builds,
 )
 from dom.config.paths import AppPaths, default_paths, is_dev_mode
-from dom.config.settings import InferenceSettings
+from dom.config.settings import GenerationSettings, InferenceSettings
 
 __all__ = [
     "AppPaths",
+    "GenerationSettings",
     "InferenceSettings",
     "LlamaServerNotFoundError",
     "ServerBuild",

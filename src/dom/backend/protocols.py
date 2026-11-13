@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
+    from dom.config.settings import GenerationSettings
     from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
     from dom.hardware import HardwareProfile
 
@@ -52,7 +53,13 @@ class InferenceService(Protocol):
         ...
 
     def stream_chat(
-        self, model_id: str, messages: Sequence[ChatMessage]
+        self,
+        model_id: str,
+        messages: Sequence[ChatMessage],
+        settings: GenerationSettings | None = None,
     ) -> AsyncGenerator[ChatDelta]:
-        """Stream a reply; stop iterating or cancel to stop generation."""
+        """Stream a reply; stop iterating or cancel to stop generation.
+
+        ``settings`` (e.g. the profile's reply cap) override the server's defaults for this reply.
+        """
         ...

@@ -17,9 +17,9 @@ import pytest
 from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
 from dom.backend.presets import PresetFile
 from dom.backend.service import AutoTuning
-from dom.config import InferenceSettings, ServerBuild, find_server_builds
+from dom.config import GenerationSettings, InferenceSettings, ServerBuild, find_server_builds
 from dom.config.binary import server_executable_name
-from dom.domain import ChatMessage, ModelStatus, Role
+from dom.domain import ChatDelta, ChatMessage, ModelStatus, Role
 from dom.hardware import HardwareProbe
 from dom.hardware.probe import read_memory
 from dom.tuning import BenchmarkCache, LlamaBench
@@ -81,6 +81,20 @@ async def _reply(service: LlamaInferenceService, model_id: str) -> str:
     return "".join(parts).strip()
 
 
+async def _check_generation_settings(service: LlamaInferenceService, model_id: str) -> None:
+    """A profile's settings reach the server: no thinking, and the reply is cut at the cap."""
+    cap = 12
+    settings = GenerationSettings(max_reply_tokens=cap, thinking=False)
+    messages = [ChatMessage(Role.USER, "Write a long story about a dragon.")]
+    deltas: list[ChatDelta] = []
+    async with asyncio.timeout(REPLY_TIMEOUT_S):
+        async for delta in service.stream_chat(model_id, messages, settings):
+            deltas.append(delta)
+    assert not "".join(d.reasoning for d in deltas), "thinking was not turned off"
+    assert "".join(d.content for d in deltas).strip(), "no answer without thinking"
+    assert len([d for d in deltas if d.content]) <= cap, "the reply cap was ignored"
+
+
 def _is_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
@@ -137,6 +151,7 @@ async def test_cpu_build_tunes_loads_chats_and_switches(tmp_path: Path) -> None:
         assert f"ctx-size = {loaded.ctx_size}" in tuning.presets.path.read_text(encoding="utf-8")
         assert await _effective_ctx(process, Q4) == loaded.ctx_size
         assert await _reply(service, Q4), "Q4_K_M gave an empty reply"
+        await _check_generation_settings(service, Q4)
 
         await service.select_model(Q8)
         statuses = {m.id: m.status for m in await service.list_models()}

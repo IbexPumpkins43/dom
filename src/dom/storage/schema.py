@@ -32,6 +32,33 @@ MIGRATIONS: tuple[str, ...] = (
         UNIQUE (conversation_id, seq)
     );
     """,
+    # 2: profiles. Existing chats move into a "Default" profile. (SQLite cannot add a NOT NULL
+    # foreign-key column with a default, so profile_id is nullable; the code always sets it.)
+    """
+    CREATE TABLE profiles (
+        id                TEXT PRIMARY KEY,
+        name              TEXT NOT NULL,
+        colour            TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        last_used_at      TEXT NOT NULL,
+        system_prompt     TEXT NOT NULL DEFAULT '',
+        last_model        TEXT,
+        temperature       REAL,
+        max_reply_tokens  INTEGER,
+        thinking          INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT INTO profiles (id, name, colour, created_at, last_used_at, max_reply_tokens)
+    VALUES (
+        'default', 'Default', 'orange',
+        strftime('%Y-%m-%dT%H:%M:%S', 'now') || '.000000Z',
+        strftime('%Y-%m-%dT%H:%M:%S', 'now') || '.000000Z',
+        8192
+    );
+    ALTER TABLE conversations
+        ADD COLUMN profile_id TEXT REFERENCES profiles (id) ON DELETE CASCADE;
+    UPDATE conversations SET profile_id = 'default';
+    CREATE INDEX ix_conversations_profile ON conversations (profile_id, updated_at DESC);
+    """,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

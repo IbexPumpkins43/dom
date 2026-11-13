@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from dom.backend.errors import BackendError, EngineMissingError
-from dom.domain import ChatMessage, LoadedModel, Message, ModelInfo, ModelStatus, Role
+from dom.domain import ChatMessage, LoadedModel, Message, ModelInfo, ModelStatus, Profile, Role
 from dom.downloads import DownloadError
 from dom.storage.errors import StorageError
 from dom.ui.protocols import ServerState
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from dom.backend.protocols import InferenceService
     from dom.downloads.protocols import EngineDownloads
-    from dom.storage.protocols import ConversationRepository
+    from dom.storage.protocols import Store
     from dom.ui.protocols import ChatView
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,9 @@ def make_title(text: str) -> str:
 class ChatController:
     """Coordinates the inference service, the conversation store and the view.
 
+    Everything happens in the current profile: its chats are listed, its system prompt and
+    generation settings are used, and the model it used last is loaded when it is opened.
+
     All public coroutines catch expected errors and report them to the view in plain English;
     they are safe to fire-and-forget from UI callbacks.
     """
@@ -54,14 +57,16 @@ class ChatController:
     def __init__(
         self,
         service: InferenceService,
-        repository: ConversationRepository,
+        store: Store,
         view: ChatView,
         engine: EngineDownloads,
+        profile: Profile,
     ) -> None:
-        """Wire up the controller; nothing starts until ``startup`` is awaited."""
+        """Wire up the controller in ``profile``; nothing starts until ``startup`` is awaited."""
         self._service = service
         self._engine = engine
-        self._repo = repository
+        self._repo = store
+        self._profile = profile
         self._view = view
         self._server_state = ServerState.STOPPED
         self._models: list[ModelInfo] = []
@@ -89,7 +94,11 @@ class ChatController:
         ):  # fmt: skip
             return
         await self._start_server()
-        if self.server_state == ServerState.READY and self._selected_model is not None:
+        if (
+            self.server_state == ServerState.READY
+            and self._selected_model is not None
+            and self.loaded_model is None
+        ):
             await self.select_model(self._selected_model)
 
     @property
@@ -130,6 +139,7 @@ class ChatController:
         self._view.show_hardware(profile.summary() if profile is not None else None)
         self._watch_task = asyncio.create_task(self._watch_for_crash())
         await self._refresh_models()
+        await self._open_profile_model()
 
     async def install_engine(self) -> None:
         """Download the AI engine (llama.cpp), then start it."""
@@ -203,6 +213,7 @@ class ChatController:
             self._view.show_error(f"Could not load {model_id}. {exc}")
         else:
             self._view.show_model_details(describe_loaded(loaded))
+            await self._remember_model(model_id)
         finally:
             self._loading_model = None
             poller.cancel()
@@ -241,6 +252,54 @@ class ChatController:
             if model.id == self._selected_model and model.status == ModelStatus.LOADED:
                 return model.id
         return None
+
+    # ---- profiles ------------------------------------------------------------------------
+
+    @property
+    def profile(self) -> Profile:
+        """The profile in use."""
+        return self._profile
+
+    async def set_profile(self, profile: Profile) -> None:
+        """Switch to ``profile`` (its chats and model), or take in new settings for this one.
+
+        New settings for the current profile apply from the next reply; the open chat stays.
+        """
+        switching = profile.id != self._profile.id
+        self._profile = profile
+        if not switching:
+            return
+        await self.stop_reply()
+        self._conversation_id = None
+        self._messages = []
+        self._view.show_messages([])
+        await self._refresh_conversations()
+        self._update_input()
+        await self._open_profile_model()
+
+    async def _open_profile_model(self) -> None:
+        """Load the model the profile used last, if it is still there and not already loaded."""
+        wanted = self._profile.last_model
+        if wanted is None or self._server_state != ServerState.READY:
+            return
+        if wanted == self._selected_model and wanted in (self.loaded_model, self._loading_model):
+            return
+        model = next((m for m in self._models if m.id == wanted), None)
+        if model is None or model.unavailable_reason is not None:
+            return
+        await self.select_model(wanted)
+
+    async def _remember_model(self, model_id: str) -> None:
+        profile = self._profile
+        if profile.last_model == model_id:
+            return
+        try:
+            await asyncio.to_thread(self._repo.set_last_model, profile.id, model_id)
+        except StorageError:
+            logger.warning("Could not remember the model for this profile", exc_info=True)
+            return
+        if self._profile.id == profile.id:
+            self._profile = replace(self._profile, last_model=model_id)
 
     # ---- conversations -------------------------------------------------------------------
 
@@ -288,7 +347,7 @@ class ChatController:
 
     async def _refresh_conversations(self) -> None:
         try:
-            conversations = await asyncio.to_thread(self._repo.list_conversations)
+            conversations = await asyncio.to_thread(self._repo.list_conversations, self._profile.id)
         except StorageError as exc:
             self._view.show_error(str(exc))
             return
@@ -310,7 +369,7 @@ class ChatController:
         try:
             if self._conversation_id is None:
                 conversation = await asyncio.to_thread(
-                    self._repo.create_conversation, make_title(text)
+                    self._repo.create_conversation, self._profile.id, make_title(text)
                 )
                 self._conversation_id = conversation.id
             message = await asyncio.to_thread(
@@ -339,13 +398,17 @@ class ChatController:
 
     async def _stream_reply(self, conversation_id: str, model_id: str) -> None:
         history = [ChatMessage(m.role, m.content) for m in self._messages]
+        settings = self._profile.settings
+        if settings.system_prompt.strip():
+            history.insert(0, ChatMessage(Role.SYSTEM, settings.system_prompt.strip()))
         content: list[str] = []
         reasoning: list[str] = []
         self._view.begin_reply()
         try:
             # aclosing: close the stream in this task even when cancelled, so the HTTP
             # connection is released here rather than by the garbage collector in another task.
-            async with contextlib.aclosing(self._service.stream_chat(model_id, history)) as stream:
+            stream_chat = self._service.stream_chat(model_id, history, settings.generation)
+            async with contextlib.aclosing(stream_chat) as stream:
                 async for delta in stream:
                     content.append(delta.content)
                     reasoning.append(delta.reasoning)

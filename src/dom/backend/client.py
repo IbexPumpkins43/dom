@@ -25,6 +25,7 @@ from dom.jsonshape import int_or_zero, is_array, is_object, str_or_none
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
 
+    from dom.config.settings import GenerationSettings
     from dom.domain import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -321,18 +322,23 @@ class LlamaClient:
         return await self.wait_for_status(model_id, ModelStatus.LOADED, poll_interval=poll_interval)
 
     async def stream_chat(
-        self, model_id: str, messages: Sequence[ChatMessage]
+        self,
+        model_id: str,
+        messages: Sequence[ChatMessage],
+        settings: GenerationSettings | None = None,
     ) -> AsyncGenerator[ChatDelta]:
         """Stream a chat reply as it is generated.
 
         Stop iterating (or cancel the task) to cancel the reply: the HTTP connection is closed
         and llama-server stops generating.
         """
-        body = {
+        body: dict[str, object] = {
             "model": model_id,
             "stream": True,
             "messages": [{"role": m.role.value, "content": m.content} for m in messages],
         }
+        if settings is not None:
+            body.update(settings.to_request_fields())
         try:
             async with self._http.stream(
                 "POST", "/v1/chat/completions", json=body, timeout=STREAM_TIMEOUT

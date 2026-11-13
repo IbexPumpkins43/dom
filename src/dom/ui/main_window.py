@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from dom.ui.controller import spawn
 from dom.ui.dialogs import Question, ask
 from dom.ui.library_dialog import LibraryDialog
+from dom.ui.profile_widgets import ProfileButton, ProfileDialog
 from dom.ui.protocols import ServerState
 from dom.ui.theme import BRASA
 from dom.ui.titlebar import TitleBar, WindowFrame
@@ -28,10 +29,11 @@ if TYPE_CHECKING:
 
     from PySide6.QtGui import QCloseEvent
 
-    from dom.domain import Conversation, Message, ModelInfo
+    from dom.domain import Conversation, Message, ModelInfo, Profile, ProfileSettings
     from dom.hardware import SystemUsage
     from dom.ui.controller import ChatController
     from dom.ui.library import LibraryController
+    from dom.ui.profiles import ProfileController
 
 ERROR_DISPLAY_MS = 10_000
 USAGE_REFRESH_MS = 200
@@ -49,7 +51,7 @@ _SERVER_LABELS: dict[ServerState, str] = {
 
 
 class MainWindow(QMainWindow):
-    """The chat window."""
+    """The chat window (implements ``ChatView`` and ``ProfileView``)."""
 
     def __init__(
         self,
@@ -67,6 +69,7 @@ class MainWindow(QMainWindow):
         self._on_closed = on_closed
         self._controller: ChatController | None = None
         self._library: LibraryController | None = None
+        self._profiles: ProfileController | None = None
         self._library_dialog: LibraryDialog | None = None
         self._offered_library = False
         self._tasks: set[asyncio.Task[None]] = set()
@@ -163,13 +166,27 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self._sidebar)
         layout.addWidget(main, 1)
+        self._profile_button = ProfileButton()
+        self._profile_button.hide()  # until the profiles are known
+        self._title_bar.add_widget(self._profile_button)
         self._frame = WindowFrame(self._title_bar, body)
         self.setCentralWidget(self._frame)
 
-    def attach(self, controller: ChatController, library: LibraryController) -> None:
-        """Connect UI events to the chat and library controllers."""
+    def attach(
+        self,
+        controller: ChatController,
+        library: LibraryController,
+        profiles: ProfileController,
+    ) -> None:
+        """Connect UI events to the chat, library and profile controllers."""
         self._controller = controller
         self._library = library
+        self._profiles = profiles
+        button = self._profile_button
+        button.switch_requested.connect(self._switch_profile)
+        button.add_requested.connect(self._add_profile)
+        button.edit_requested.connect(self._edit_profile)
+        button.delete_requested.connect(self._confirm_delete_profile)
         self._sidebar.get_models_requested.connect(self._open_library)
         self._input.submitted.connect(self._submit)
         self._send.clicked.connect(self._send_or_stop)
@@ -270,7 +287,64 @@ class MainWindow(QMainWindow):
         self._server_label.setToolTip(tip)
         self._details_label.setToolTip(tip)
 
+    # ---- ProfileView ---------------------------------------------------------------------
+
+    def show_profiles(self, profiles: Sequence[Profile], current: Profile) -> None:
+        """Show the current profile in the title bar and every profile in its menu."""
+        self._profile_button.set_profiles(profiles, current)
+        self._profile_button.show()
+
+    def profile_button(self) -> ProfileButton:
+        """The profile switcher in the title bar."""
+        return self._profile_button
+
     # ---- events --------------------------------------------------------------------------
+
+    def _switch_profile(self, profile_id: str) -> None:
+        if self._profiles is not None:
+            self._run(self._profiles.switch(profile_id))
+
+    def _add_profile(self) -> None:
+        profiles = self._profiles
+        if profiles is None:
+            return
+
+        def save(settings: ProfileSettings) -> None:
+            self._run(profiles.create(settings))
+
+        self._open_profile_dialog(profiles.new_profile_settings(), save, adding=True)
+
+    def _edit_profile(self) -> None:
+        profiles = self._profiles
+        if profiles is None:
+            return
+        profile_id = profiles.current.id
+
+        def save(settings: ProfileSettings) -> None:
+            self._run(profiles.update(profile_id, settings))
+
+        self._open_profile_dialog(profiles.current.settings, save, adding=False)
+
+    def _open_profile_dialog(
+        self, initial: ProfileSettings, on_save: Callable[[ProfileSettings], None], *, adding: bool
+    ) -> None:
+        dialog = ProfileDialog(self, initial, on_save, adding=adding)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.open()  # not exec(): see dialogs.ask
+
+    def _confirm_delete_profile(self) -> None:
+        profiles = self._profiles
+        if profiles is None:
+            return
+        profile = profiles.current
+        question = Question(
+            "Delete profile",
+            f"Delete the profile “{profile.name}” and all of its chats?\n\n"
+            "This cannot be undone. Downloaded models are kept.",
+            "Delete profile",
+            danger=True,
+        )
+        ask(self, question, lambda: self._run(profiles.delete(profile.id)))
 
     def _submit(self) -> None:
         controller = self._controller
