@@ -30,6 +30,9 @@ as Markdown, a Stop button, and chat history that survives restarts.
 - dom contacts nothing except Hugging Face and GitHub, and only for these downloads. Every
   request is checked against an allow-list.
 
+The look follows the [base16 Brasa](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/brasa.yaml)
+colour scheme (`src/dom/ui/theme.py`); the model picker sits under the message box.
+
 Works on Windows x64, Windows ARM64 and Linux. The GUI is PySide6 (Qt), which has native
 Windows ARM64 builds.
 
@@ -114,7 +117,8 @@ Run with `DOM_DEV=1 uv run python -m dom` after fetching the test assets.
    kept.
 4. **History survives restarts.** Close the window and start the app again. The conversation(s)
    are in the left sidebar, newest first. Clicking one shows its messages. "New chat" starts an
-   empty conversation.
+   empty conversation. To delete a chat, hover over it and click **✕** (or right-click → **Delete
+   chat**, or select it and press Delete); dom asks for confirmation first.
 5. **Missing `llama-server`.** Run with the binary unavailable, e.g. temporarily rename
    `.dev/bin` to `.dev/bin-off` and start with `DOM_DEV=1`. A red banner explains that
    `llama-server` is missing and which folder to put it in. There is no crash or stack trace.

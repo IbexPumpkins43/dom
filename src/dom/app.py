@@ -39,6 +39,7 @@ from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
 from dom.ui.library import LibraryController
 from dom.ui.main_window import MainWindow
+from dom.ui.theme import apply_theme
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -171,7 +172,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("dom")
-    app.setStyle("Fusion")
+    apply_theme(app)
     # The window closes itself only after the server is stopped (see MainWindow.closeEvent).
     app.setQuitOnLastWindowClosed(False)
 

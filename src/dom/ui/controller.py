@@ -269,6 +269,23 @@ class ChatController:
         await self._refresh_conversations()
         self._update_input()
 
+    async def delete_conversation(self, conversation_id: str) -> None:
+        """Delete a saved conversation (stopping its reply first if it is the open one)."""
+        is_open = conversation_id == self._conversation_id
+        if is_open:
+            await self.stop_reply()
+        try:
+            await asyncio.to_thread(self._repo.delete_conversation, conversation_id)
+        except StorageError as exc:
+            self._view.show_error(f"Could not delete the chat. {exc}")
+            return
+        if is_open:
+            self._conversation_id = None
+            self._messages = []
+            self._view.show_messages([])
+        await self._refresh_conversations()
+        self._update_input()
+
     async def _refresh_conversations(self) -> None:
         try:
             conversations = await asyncio.to_thread(self._repo.list_conversations)

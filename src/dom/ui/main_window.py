@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -17,7 +18,6 @@ from PySide6.QtWidgets import (
 from dom.ui.controller import spawn
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.protocols import ServerState
-from dom.ui.style import STYLESHEET
 from dom.ui.widgets import Banner, ChatArea, ChatInput, ModelPicker, Sidebar
 
 if TYPE_CHECKING:
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from dom.ui.library import LibraryController
 
 ERROR_DISPLAY_MS = 10_000
+COMPOSER_MAX_WIDTH = 900
 
 _SERVER_LABELS: dict[ServerState, str] = {
     ServerState.STARTING: "Starting the AI engine…",
@@ -62,7 +63,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("dom")
         self.resize(1180, 780)
         self.setMinimumSize(760, 480)
-        self.setStyleSheet(STYLESHEET)
 
         self._sidebar = Sidebar()
         self._picker = ModelPicker()
@@ -80,47 +80,53 @@ class MainWindow(QMainWindow):
         self._error_timer.setSingleShot(True)
         self._error_timer.timeout.connect(self._error.hide)
         self._input = ChatInput()
+        self._composer = QWidget()
+        self._input.focus_changed.connect(self._on_input_focus)
         self._send = QPushButton("Send")
         self._send.setObjectName("sendButton")
         self._send.setCursor(Qt.CursorShape.PointingHandCursor)
         self._build_layout()
 
     def _build_layout(self) -> None:
-        top_bar = QWidget()
-        top_bar.setObjectName("topBar")
-        top = QHBoxLayout(top_bar)
-        top.setContentsMargins(16, 10, 16, 10)
-        top.addWidget(self._picker)
-        top.addSpacing(12)
-        top.addWidget(self._details_label)
-        top.addStretch(1)
-        top.addWidget(self._server_label)
-
-        composer = QWidget()
+        composer = self._composer
         composer.setObjectName("composer")
         composer_layout = QHBoxLayout(composer)
         composer_layout.setContentsMargins(10, 8, 10, 8)
         composer_layout.addWidget(self._input, 1)
         composer_layout.addWidget(self._send, 0, Qt.AlignmentFlag.AlignBottom)
-        composer_row = QHBoxLayout()
-        composer_row.setContentsMargins(16, 0, 16, 16)
-        composer_row.addStretch(1)
-        composer_row.addWidget(composer, 100)
-        composer_row.addStretch(1)
-        composer.setMaximumWidth(900)
+
+        # Under the message box: which model, what it runs on, and the engine's state.
+        footer = QWidget()
+        footer.setObjectName("footer")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(4, 8, 4, 0)
+        footer_layout.addWidget(self._picker)
+        footer_layout.addSpacing(12)
+        footer_layout.addWidget(self._details_label)
+        footer_layout.addStretch(1)
+        footer_layout.addWidget(self._server_label)
+
+        bottom = QWidget()
+        bottom.setMaximumWidth(COMPOSER_MAX_WIDTH)
+        bottom_layout = QVBoxLayout(bottom)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(0)
+        bottom_layout.addWidget(self._error)
+        bottom_layout.addWidget(composer)
+        bottom_layout.addWidget(footer)
+        bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(16, 0, 16, 14)
+        bottom_row.addStretch(1)
+        bottom_row.addWidget(bottom, 100)
+        bottom_row.addStretch(1)
 
         main = QWidget()
         main_layout = QVBoxLayout(main)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        main_layout.addWidget(top_bar)
         main_layout.addWidget(self._banner)
         main_layout.addWidget(self._chat, 1)
-        error_row = QHBoxLayout()
-        error_row.setContentsMargins(16, 0, 16, 6)
-        error_row.addWidget(self._error)
-        main_layout.addLayout(error_row)
-        main_layout.addLayout(composer_row)
+        main_layout.addLayout(bottom_row)
 
         central = QWidget()
         layout = QHBoxLayout(central)
@@ -140,6 +146,7 @@ class MainWindow(QMainWindow):
         self._picker.model_chosen.connect(self._on_model_chosen)
         self._sidebar.new_chat_requested.connect(lambda: self._run(controller.new_chat()))
         self._sidebar.conversation_selected.connect(self._on_conversation_selected)
+        self._sidebar.delete_requested.connect(self._confirm_delete)
         self._banner.action_clicked.connect(self._on_banner_action)
         self.set_input_state(can_send=False, streaming=False)
 
@@ -243,6 +250,25 @@ class MainWindow(QMainWindow):
         self._input.clear()
         self._run(controller.send(text))
 
+    def _on_input_focus(self, focused: bool) -> None:
+        self._composer.setProperty("focused", focused)
+        self._composer.style().unpolish(self._composer)
+        self._composer.style().polish(self._composer)
+
+    def _confirm_delete(self, conversation_id: str, title: str) -> None:
+        controller = self._controller
+        if controller is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete chat",
+            f"Delete “{title or 'this chat'}”?\n\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._run(controller.delete_conversation(conversation_id))
+
     def _on_banner_action(self) -> None:
         if self._controller is None:
             return
@@ -257,7 +283,6 @@ class MainWindow(QMainWindow):
             return
         if self._library_dialog is None:
             dialog = LibraryDialog(self)
-            dialog.setStyleSheet(STYLESHEET)
             dialog.download_requested.connect(self._download_model)
             dialog.cancel_requested.connect(self._cancel_download)
             library.attach(dialog)

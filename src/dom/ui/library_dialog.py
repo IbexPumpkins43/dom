@@ -72,6 +72,7 @@ class _ModelRow(QFrame):
         for badge in badges:
             label = QLabel(badge)
             label.setObjectName("badge")
+            label.setProperty("kind", "installed" if badge == "Downloaded" else "recommended")
             heading.addWidget(label)
         heading.addStretch(1)
         text.addLayout(heading)

@@ -274,3 +274,60 @@ def test_make_title() -> None:
     assert len(make_title(long)) == 60  # noqa: PLR2004
     assert make_title(long).endswith("…")
     assert make_title("   ") == "New chat"
+
+
+async def test_deleting_the_open_chat_clears_the_view(
+    controller: ChatController, view: RecordingView
+) -> None:
+    await _ready(controller)
+    await controller.send("first")
+    await controller.new_chat()
+    await controller.send("second")
+    open_id = view.current_conversation
+    assert open_id is not None
+    await controller.delete_conversation(open_id)
+    assert view.messages == []
+    assert view.current_conversation is None
+    assert [c.title for c in view.conversations] == ["first"]
+    assert view.can_send
+
+
+async def test_deleting_another_chat_keeps_the_open_one(
+    controller: ChatController, view: RecordingView
+) -> None:
+    await _ready(controller)
+    await controller.send("old")
+    old_id = view.current_conversation
+    await controller.new_chat()
+    await controller.send("current")
+    current_id = view.current_conversation
+    assert old_id is not None
+    await controller.delete_conversation(old_id)
+    assert view.current_conversation == current_id
+    assert [m.content for m in view.messages] == ["current", "Hello there!"]
+    assert [c.title for c in view.conversations] == ["current"]
+
+
+async def test_deleting_the_chat_being_answered_stops_the_reply(
+    controller: ChatController, service: FakeInferenceService, view: RecordingView
+) -> None:
+    service.endless_stream = True
+    await _ready(controller)
+    send = asyncio.create_task(controller.send("long answer please"))
+    await service.endless_started.wait()
+    chat_id = view.current_conversation
+    assert chat_id is not None
+    await controller.delete_conversation(chat_id)
+    await send
+    assert service.stream_closed
+    assert view.conversations == []
+    assert view.messages == []
+    assert not view.streaming
+
+
+async def test_deleting_a_missing_chat_shows_an_error(
+    controller: ChatController, view: RecordingView
+) -> None:
+    await controller.startup()
+    await controller.delete_conversation("does-not-exist")
+    assert any("Could not delete" in e for e in view.errors)

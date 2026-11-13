@@ -119,3 +119,29 @@ def test_newer_schema_is_rejected(db_path: Path) -> None:
     conn.close()
     with pytest.raises(SchemaVersionError):
         SqliteConversationRepository(db_path)
+
+
+def test_delete_conversation_removes_it_and_its_messages(db_path: Path) -> None:
+    repo = SqliteConversationRepository(db_path, clock=FakeClock())
+    keep = repo.create_conversation("keep")
+    repo.add_message(keep.id, Role.USER, "stay")
+    gone = repo.create_conversation("gone")
+    repo.add_message(gone.id, Role.USER, "bye")
+    repo.add_message(gone.id, Role.ASSISTANT, "bye!")
+    repo.delete_conversation(gone.id)
+    assert [c.id for c in repo.list_conversations()] == [keep.id]
+    assert repo.get_messages(gone.id) == []
+    assert [m.content for m in repo.get_messages(keep.id)] == ["stay"]
+    repo.close()
+    with sqlite3.connect(db_path) as conn:
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?", (gone.id,)
+        ).fetchone()
+    assert orphans == (0,)
+
+
+def test_deleting_a_missing_conversation_raises(db_path: Path) -> None:
+    repo = SqliteConversationRepository(db_path)
+    with pytest.raises(ConversationNotFoundError):
+        repo.delete_conversation("nope")
+    repo.close()

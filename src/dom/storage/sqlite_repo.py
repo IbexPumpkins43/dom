@@ -163,6 +163,19 @@ class SqliteConversationRepository:
             )
         return message
 
+    def delete_conversation(self, conversation_id: str) -> None:
+        """Delete a conversation; its messages go with it (``ON DELETE CASCADE``).
+
+        Raises:
+            ConversationNotFoundError: if there is no such conversation.
+        """
+        with self._lock, self._transaction():
+            deleted = self._conn.execute(
+                "DELETE FROM conversations WHERE id = ?", (conversation_id,)
+            )
+            if deleted.rowcount == 0:
+                raise ConversationNotFoundError(f"No conversation with id {conversation_id}")
+
     def close(self) -> None:
         """Close the database connection."""
         with self._lock:

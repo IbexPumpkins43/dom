@@ -39,6 +39,10 @@ class ConversationRepository(Protocol):
         """Append a message to a conversation and mark the conversation as updated."""
         ...
 
+    def delete_conversation(self, conversation_id: str) -> None:
+        """Delete a conversation and all its messages."""
+        ...
+
     def close(self) -> None:
         """Release the underlying storage."""
         ...

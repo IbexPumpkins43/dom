@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -27,7 +28,8 @@ from dom.domain import ModelStatus, Role
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QEnterEvent, QFocusEvent, QKeyEvent, QResizeEvent
 
     from dom.domain import Conversation, Message, ModelInfo
 
@@ -57,6 +59,7 @@ class ChatInput(QPlainTextEdit):
     """Multi-line message box: Enter sends, Shift+Enter adds a new line."""
 
     submitted = Signal()
+    focus_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create the input box."""
@@ -77,6 +80,16 @@ class ChatInput(QPlainTextEdit):
             self.submitted.emit()
             return
         super().keyPressEvent(e)
+
+    def focusInEvent(self, e: QFocusEvent) -> None:  # noqa: N802 -- Qt override
+        """Tell the window (it highlights the message box)."""
+        super().focusInEvent(e)
+        self.focus_changed.emit(True)
+
+    def focusOutEvent(self, e: QFocusEvent) -> None:  # noqa: N802 -- Qt override
+        """Tell the window (it stops highlighting the message box)."""
+        super().focusOutEvent(e)
+        self.focus_changed.emit(False)
 
     def _fit_height(self) -> None:
         line = self.fontMetrics().lineSpacing()
@@ -257,12 +270,58 @@ class ChatArea(QScrollArea):
             self.verticalScrollBar().setValue(maximum)
 
 
+class _ConversationRow(QWidget):
+    """A sidebar entry: the chat's title and a delete button shown on hover."""
+
+    delete_clicked = Signal()
+
+    def __init__(self, title: str, *, current: bool) -> None:
+        super().__init__()
+        self._title = title
+        self._current = current
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 0, 2, 0)
+        layout.setSpacing(4)
+        self._label = QLabel()
+        self._label.setObjectName("conversationTitle")
+        self._label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout.addWidget(self._label, 1)
+        self._delete = QToolButton()
+        self._delete.setObjectName("deleteChat")
+        self._delete.setText("✕")
+        self._delete.setToolTip("Delete this chat")
+        self._delete.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete.clicked.connect(self.delete_clicked.emit)
+        self._delete.setVisible(current)
+        layout.addWidget(self._delete)
+
+    def enterEvent(self, event: QEnterEvent) -> None:  # noqa: N802 -- Qt override
+        """Show the delete button while the pointer is over the row."""
+        self._delete.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802 -- Qt override
+        """Hide the delete button again (unless this is the open chat)."""
+        self._delete.setVisible(self._current)
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
+        """Elide long titles to the available width."""
+        super().resizeEvent(event)
+        width = max(0, self._label.width())
+        elided = self._label.fontMetrics().elidedText(
+            self._title, Qt.TextElideMode.ElideRight, width
+        )
+        self._label.setText(elided)
+
+
 class Sidebar(QFrame):
-    """Past conversations (newest first) and the New chat button."""
+    """Past conversations (newest first), New chat and Get models."""
 
     new_chat_requested = Signal()
     get_models_requested = Signal()
     conversation_selected = Signal(str)
+    delete_requested = Signal(str, str)  # conversation id, title
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create the sidebar."""
@@ -288,8 +347,11 @@ class Sidebar(QFrame):
         self._list.setFrameShape(QFrame.Shape.NoFrame)
         self._list.setUniformItemSizes(True)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._show_context_menu)
         self._list.itemClicked.connect(self._on_clicked)
         layout.addWidget(self._list, 1)
+        self._titles: dict[str, str] = {}
 
     def set_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
@@ -297,12 +359,16 @@ class Sidebar(QFrame):
         """Show ``conversations`` and highlight ``current_id``."""
         self._list.blockSignals(True)
         self._list.clear()
+        self._titles = {c.id: c.title for c in conversations}
         for conversation in conversations:
-            item = QListWidgetItem(conversation.title)
+            item = QListWidgetItem()
             item.setToolTip(conversation.title)
             item.setData(Qt.ItemDataRole.UserRole, conversation.id)
             item.setSizeHint(QSize(0, 34))
             self._list.addItem(item)
+            row = _ConversationRow(conversation.title, current=conversation.id == current_id)
+            row.delete_clicked.connect(lambda cid=conversation.id: self._request_delete(cid))
+            self._list.setItemWidget(item, row)
             if conversation.id == current_id:
                 item.setSelected(True)
                 self._list.setCurrentItem(item)
@@ -310,10 +376,40 @@ class Sidebar(QFrame):
             self._list.clearSelection()
         self._list.blockSignals(False)
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 -- Qt override
+        """Delete key: delete the selected chat."""
+        row = self._list.currentRow()  # -1 when nothing is selected
+        if event.key() == Qt.Key.Key_Delete.value and row >= 0:
+            conversation_id = self._id_of(self._list.item(row))
+            if conversation_id is not None:
+                self._request_delete(conversation_id)
+                return
+        super().keyPressEvent(event)
+
+    def _show_context_menu(self, pos: QPoint) -> None:
+        index = self._list.indexAt(pos)
+        if not index.isValid():
+            return  # right-click on empty space
+        conversation_id = self._id_of(self._list.itemFromIndex(index))
+        if conversation_id is None:
+            return
+        menu = QMenu(self)
+        delete = menu.addAction("Delete chat")
+        delete.triggered.connect(lambda: self._request_delete(conversation_id))
+        menu.exec(self._list.viewport().mapToGlobal(pos))
+
+    def _request_delete(self, conversation_id: str) -> None:
+        self.delete_requested.emit(conversation_id, self._titles.get(conversation_id, ""))
+
     def _on_clicked(self, item: QListWidgetItem) -> None:
-        conversation_id: object = item.data(Qt.ItemDataRole.UserRole)
-        if isinstance(conversation_id, str):
+        conversation_id = self._id_of(item)
+        if conversation_id is not None:
             self.conversation_selected.emit(conversation_id)
+
+    @staticmethod
+    def _id_of(item: QListWidgetItem) -> str | None:
+        conversation_id: object = item.data(Qt.ItemDataRole.UserRole)
+        return conversation_id if isinstance(conversation_id, str) else None
 
 
 class ModelPicker(QComboBox):
