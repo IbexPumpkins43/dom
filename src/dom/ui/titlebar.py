@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
     QHBoxLayout,
@@ -33,7 +33,11 @@ _GLYPH = 10  # size of the drawn button symbols, in pixels
 
 
 class CaptionButton(QAbstractButton):
-    """Minimise / maximise / restore / close, drawn with lines so they look the same everywhere."""
+    """Minimise / maximise / restore / close, drawn with lines so they look the same everywhere.
+
+    Colours come from the application palette (so they follow a profile's tint), except the
+    close button's red hover, which is ``theme.base08``.
+    """
 
     def __init__(self, kind: str, theme: Base16, parent: QWidget | None = None) -> None:
         """``kind`` is ``minimize``, ``maximize``, ``restore`` or ``close``."""
@@ -59,12 +63,16 @@ class CaptionButton(QAbstractButton):
 
     def paintEvent(self, e: QPaintEvent) -> None:  # noqa: N802 -- Qt override
         """Draw the background and the symbol."""
-        t = self._theme
+        palette = self.palette()
+        closing = self._hovered and self.kind == "close"
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self._hovered:
-            painter.fillRect(self.rect(), QColor(t.base08 if self.kind == "close" else t.base02))
-        colour = QColor(t.base00 if self._hovered and self.kind == "close" else t.base05)
+            hover = palette.color(QPalette.ColorRole.Midlight)  # base02
+            painter.fillRect(self.rect(), QColor(self._theme.base08) if closing else hover)
+        colour = palette.color(
+            QPalette.ColorRole.Window if closing else QPalette.ColorRole.WindowText
+        )
         pen = QPen(colour)
         pen.setWidthF(1.2)
         painter.setPen(pen)

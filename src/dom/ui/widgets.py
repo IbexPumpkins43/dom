@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from dom.domain import ModelStatus, Role
 from dom.hardware.models import GIB
-from dom.ui.assets import render_logo
+from dom.ui.assets import LOGO_COLOUR, render_logo
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -252,17 +252,25 @@ class ChatArea(QScrollArea):
         self._logo = QLabel(self.viewport())
         self._logo.setObjectName("chatLogo")
         self._logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._logo.setPixmap(
-            render_logo(
-                LOGO_WIDTH, opacity=LOGO_OPACITY, device_pixel_ratio=self.devicePixelRatioF()
-            )
-        )
-        self._logo.adjustSize()
+        self.set_logo_colour(LOGO_COLOUR)
         self._logo.raise_()  # above the chat canvas; it is only shown while the chat is empty
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
         """Keep the logo centred in the visible area."""
         super().resizeEvent(event)
+        self._place_logo()
+
+    def set_logo_colour(self, colour: str) -> None:
+        """Draw the empty-chat logo in ``colour`` (the accent colour)."""
+        self._logo.setPixmap(
+            render_logo(
+                LOGO_WIDTH,
+                opacity=LOGO_OPACITY,
+                device_pixel_ratio=self.devicePixelRatioF(),
+                colour=colour,
+            )
+        )
+        self._logo.adjustSize()
         self._place_logo()
 
     def logo_visible(self) -> bool:

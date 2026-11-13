@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QPalette, QStandardItemModel
+from PySide6.QtGui import QColor, QPalette, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,8 +34,9 @@ from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
 from dom.ui.assets import logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
+from dom.ui.main_window import MainWindow
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog, avatar_pixmap
-from dom.ui.theme import BRASA, apply_theme
+from dom.ui.theme import BRASA, apply_theme, profile_colour, theme_for, tinted
 from dom.ui.titlebar import TitleBar, edges_at
 from dom.ui.widgets import ChatArea, ModelPicker, Sidebar, UsagePanel
 
@@ -279,6 +281,7 @@ def test_profile_dialog_round_trip(qt_app: QApplication) -> None:
     dialog.style_combo.setCurrentIndex(1)  # precise
     dialog.length_combo.setCurrentIndex(0)  # short
     dialog.thinking_check.setChecked(True)
+    dialog.tint_check.setChecked(True)
     QTest.mouseClick(dialog.save_button, Qt.MouseButton.LeftButton)
     assert saved == [
         ProfileSettings(
@@ -286,6 +289,7 @@ def test_profile_dialog_round_trip(qt_app: QApplication) -> None:
             ProfileColour.CYAN,
             "Be brief.",
             GenerationSettings(temperature=0.2, max_reply_tokens=1024, thinking=True),
+            tint=True,
         )
     ]
     assert qt_app is not None
@@ -300,4 +304,46 @@ def test_add_profile_dialog_cancel_saves_nothing(qt_app: QApplication) -> None:
     assert dialog.save_button.text() == "Add profile"
     QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
     assert saved == []
+    assert qt_app is not None
+
+
+def test_tinted_theme_keeps_lightness_and_uses_the_profile_colour() -> None:
+    blue = profile_colour(BRASA, ProfileColour.BLUE)
+    theme = tinted(BRASA, blue)
+    assert theme.base09 == blue.upper()
+    assert theme.base08 == BRASA.base08  # errors stay red
+    for name in ("base00", "base02", "base05"):
+        before, after = QColor(getattr(BRASA, name)), QColor(getattr(theme, name))
+        assert abs(before.lightnessF() - after.lightnessF()) < 0.01  # noqa: PLR2004
+        assert abs(after.hslHueF() - QColor(blue).hslHueF()) < 0.02  # noqa: PLR2004
+    plain = ProfileSettings("x", ProfileColour.BLUE)
+    assert theme_for(plain) is BRASA
+    assert theme_for(replace(plain, tint=True)) == theme
+
+
+def test_window_follows_the_profile_tint(qt_app: QApplication) -> None:
+    window = MainWindow(on_closed=lambda: None)
+    plain = _profile("p1", "Home", ProfileColour.BLUE)
+    tinted_profile = replace(plain, settings=replace(plain.settings, tint=True))
+    try:
+        window.show_profiles([tinted_profile], tinted_profile)
+        expected = theme_for(tinted_profile.settings)
+        assert window.theme() == expected
+        assert qt_app.palette().color(QPalette.ColorRole.Window).name().upper() == expected.base00
+        window.show_profiles([plain], plain)
+        assert window.theme() is BRASA
+        assert qt_app.palette().color(QPalette.ColorRole.Window).name().upper() == BRASA.base00
+    finally:
+        apply_theme(qt_app)
+
+
+def test_logo_can_be_recoloured(qt_app: QApplication) -> None:
+    image = render_logo(200, colour="#00FF00").toImage()
+    colours = {
+        image.pixelColor(x, y).name()
+        for x in range(0, image.width(), 4)
+        for y in range(0, image.height(), 4)
+        if image.pixelColor(x, y).alpha() == 255  # noqa: PLR2004
+    }
+    assert colours == {"#00ff00"}
     assert qt_app is not None

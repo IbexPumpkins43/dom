@@ -8,7 +8,7 @@ base00-base03 are backgrounds from darkest to lightest, base04-base07 foreground
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor, QPalette
@@ -17,6 +17,8 @@ from dom.domain import ProfileColour
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
+
+    from dom.domain import ProfileSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +77,31 @@ def profile_colour(t: Base16, colour: ProfileColour) -> str:
         ProfileColour.BLUE: t.base0D,
         ProfileColour.MAGENTA: t.base0E,
     }[colour]
+
+
+def _with_hue(colour: str, hue: float) -> str:
+    """``colour`` with its hue replaced (lightness and saturation kept)."""
+    original = QColor(colour)
+    return QColor.fromHslF(hue, original.hslSaturationF(), original.lightnessF()).name().upper()
+
+
+def tinted(t: Base16, accent: str) -> Base16:
+    """``t`` recoloured around ``accent``: backgrounds and text take its hue, and it becomes
+    the accent colour (base09). Lightness is kept, so contrast stays the same."""
+    hue = max(0.0, QColor(accent).hslHueF())
+    shift = {
+        name: _with_hue(getattr(t, name), hue)
+        for name in ("base00", "base01", "base02", "base03", "base04", "base05", "base06",
+                     "base07", "base0F")
+    }  # fmt: skip
+    return replace(t, name=f"{t.name} ({accent})", base09=accent.upper(), **shift)
+
+
+def theme_for(settings: ProfileSettings, base: Base16 = BRASA) -> Base16:
+    """The look for a profile: ``base``, tinted in the profile's colour if it asks for that."""
+    if not settings.tint:
+        return base
+    return tinted(base, profile_colour(base, settings.colour))
 
 
 def build_palette(t: Base16) -> QPalette:

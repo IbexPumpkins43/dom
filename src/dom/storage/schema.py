@@ -59,6 +59,10 @@ MIGRATIONS: tuple[str, ...] = (
     UPDATE conversations SET profile_id = 'default';
     CREATE INDEX ix_conversations_profile ON conversations (profile_id, updated_at DESC);
     """,
+    # 3: optionally tint the interface in the profile's colour.
+    """
+    ALTER TABLE profiles ADD COLUMN tint INTEGER NOT NULL DEFAULT 0;
+    """,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

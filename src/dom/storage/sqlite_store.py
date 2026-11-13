@@ -22,7 +22,7 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 _PROFILE_COLUMNS = (
     "id, name, colour, created_at, last_used_at, system_prompt, last_model, temperature, "
-    "max_reply_tokens, thinking"
+    "max_reply_tokens, thinking, tint"
 )
 
 type Clock = Callable[[], datetime]
@@ -85,6 +85,7 @@ def _profile(row: tuple[object, ...]) -> Profile:
             max_reply_tokens=_optional_int(row, 8),
             thinking=bool(_optional_int(row, 9)),
         ),
+        tint=bool(_optional_int(row, 10)),
     )
     return Profile(
         id=_text(row, 0),
@@ -96,7 +97,7 @@ def _profile(row: tuple[object, ...]) -> Profile:
 
 
 def _settings_values(settings: ProfileSettings) -> tuple[SqlValue, ...]:
-    """name, colour, system_prompt, temperature, max_reply_tokens, thinking."""
+    """name, colour, system_prompt, temperature, max_reply_tokens, thinking, tint."""
     generation = settings.generation
     return (
         settings.name,
@@ -105,6 +106,7 @@ def _settings_values(settings: ProfileSettings) -> tuple[SqlValue, ...]:
         generation.temperature,
         generation.max_reply_tokens,
         int(generation.thinking),
+        int(settings.tint),
     )
 
 
@@ -145,7 +147,8 @@ class SqliteStore:
         with self._lock, self._transaction():
             self._conn.execute(
                 "INSERT INTO profiles (id, created_at, last_used_at, name, colour, system_prompt, "
-                "temperature, max_reply_tokens, thinking) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "temperature, max_reply_tokens, thinking, tint) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (profile_id, now, now, *_settings_values(settings)),
             )
         return self._get_profile(profile_id)
@@ -159,7 +162,7 @@ class SqliteStore:
         with self._lock, self._transaction():
             updated = self._conn.execute(
                 "UPDATE profiles SET name = ?, colour = ?, system_prompt = ?, temperature = ?, "
-                "max_reply_tokens = ?, thinking = ? WHERE id = ?",
+                "max_reply_tokens = ?, thinking = ?, tint = ? WHERE id = ?",
                 (*_settings_values(settings), profile_id),
             )
             self._require_row(updated.rowcount, profile_id)

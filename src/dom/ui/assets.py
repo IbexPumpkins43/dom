@@ -9,16 +9,24 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 LOGO_FILE = "logo.svg"
+LOGO_COLOUR = "#FF7A4D"  # the fill in logo.svg (Brasa base09)
 
 
 def logo_svg() -> bytes:
-    """The dom logo (the word "dom" in Bodoni Moda, as outlines) as SVG."""
+    """The dom logo (the word "dom" in Noto Sans Bold, as outlines) as SVG."""
     return files("dom.ui").joinpath("assets", LOGO_FILE).read_bytes()
 
 
-def render_logo(width: int, *, opacity: float = 1.0, device_pixel_ratio: float = 1.0) -> QPixmap:
+def render_logo(
+    width: int,
+    *,
+    opacity: float = 1.0,
+    device_pixel_ratio: float = 1.0,
+    colour: str = LOGO_COLOUR,
+) -> QPixmap:
     """The logo ``width`` pixels wide (height keeps its proportions), sharp on high-DPI screens."""
-    renderer = QSvgRenderer(QByteArray(logo_svg()))
+    svg = logo_svg().replace(LOGO_COLOUR.encode(), colour.encode())
+    renderer = QSvgRenderer(QByteArray(svg))
     view = renderer.viewBoxF()
     pixels = round(width * device_pixel_ratio)
     height = max(1, round(pixels * view.height() / view.width()))

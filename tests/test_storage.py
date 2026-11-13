@@ -194,6 +194,7 @@ def test_profile_round_trip(db_path: Path) -> None:
         ProfileColour.BLUE,
         "Be brief.",
         GenerationSettings(temperature=0.2, max_reply_tokens=None, thinking=False),
+        tint=True,
     )
     work = repo.create_profile(settings)
     assert work.settings == settings

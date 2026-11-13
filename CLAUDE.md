@@ -98,8 +98,8 @@ pythonVersion = "3.12"
   `config/settings.py`, owned by each profile and sent in the chat request body
   (`to_request_fields`), so they change without reloading the model.
 - Profiles (like browser profiles) live in the same SQLite file: each has its own chats, system
-  prompt, `GenerationSettings` and last-used model; models and the engine are shared. dom opens
-  the last-used profile. Schema changes are new entries in `storage/schema.py` `MIGRATIONS`.
+  prompt, `GenerationSettings`, last-used model and optional tint (`ui/theme.py` `theme_for`);
+  models and the engine are shared. dom opens the last-used profile. Schema changes are new entries in `storage/schema.py` `MIGRATIONS`.
 - Automatic tuning (`tuning/`) chooses per-model settings from `hardware/` detection and the
   router's memory measurements; keep `tuning/` pure and unit-tested.
 - The UI never blocks on network or disk I/O.

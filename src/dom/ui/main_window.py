@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -20,7 +21,7 @@ from dom.ui.dialogs import Question, ask
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog
 from dom.ui.protocols import ServerState
-from dom.ui.theme import BRASA
+from dom.ui.theme import BRASA, apply_theme, theme_for
 from dom.ui.titlebar import TitleBar, WindowFrame
 from dom.ui.widgets import Banner, ChatArea, ChatInput, ElidedLabel, ModelPicker, Sidebar
 
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from dom.ui.controller import ChatController
     from dom.ui.library import LibraryController
     from dom.ui.profiles import ProfileController
+    from dom.ui.theme import Base16
 
 ERROR_DISPLAY_MS = 10_000
 USAGE_REFRESH_MS = 200
@@ -82,8 +84,6 @@ class MainWindow(QMainWindow):
         # keep the window minimisable from the taskbar and snappable on Windows.
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
-        self._title_bar = TitleBar(BRASA)
-        self._title_bar.set_title("New chat")
         self.resize(1180, 780)
         self.setMinimumSize(760, 480)
 
@@ -166,11 +166,17 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self._sidebar)
         layout.addWidget(main, 1)
+        self._frame = WindowFrame(self._build_title_bar(), body)
+        self.setCentralWidget(self._frame)
+
+    def _build_title_bar(self) -> TitleBar:
+        self._theme = BRASA
+        self._title_bar = TitleBar(self._theme)
+        self._title_bar.set_title("New chat")
         self._profile_button = ProfileButton()
         self._profile_button.hide()  # until the profiles are known
         self._title_bar.add_widget(self._profile_button)
-        self._frame = WindowFrame(self._title_bar, body)
-        self.setCentralWidget(self._frame)
+        return self._title_bar
 
     def attach(
         self,
@@ -290,9 +296,23 @@ class MainWindow(QMainWindow):
     # ---- ProfileView ---------------------------------------------------------------------
 
     def show_profiles(self, profiles: Sequence[Profile], current: Profile) -> None:
-        """Show the current profile in the title bar and every profile in its menu."""
+        """Show the current profile in the title bar and its menu, in the profile's colours."""
         self._profile_button.set_profiles(profiles, current)
         self._profile_button.show()
+        self._apply_look(theme_for(current.settings))
+
+    def theme(self) -> Base16:
+        """The colours in use (Brasa, or Brasa tinted in the profile's colour)."""
+        return self._theme
+
+    def _apply_look(self, theme: Base16) -> None:
+        if theme == self._theme:
+            return  # re-applying the stylesheet re-polishes every widget: skip if unchanged
+        self._theme = theme
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            apply_theme(app, theme)
+        self._chat.set_logo_colour(theme.base09)
 
     def profile_button(self) -> ProfileButton:
         """The profile switcher in the title bar."""

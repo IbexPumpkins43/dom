@@ -245,6 +245,10 @@ class ProfileDialog(FramedDialog):
             swatches.addWidget(swatch)
         swatches.addStretch(1)
         self._field(layout, "Colour", swatches)
+        layout.addSpacing(4)
+        self.tint_check = QCheckBox("Tint dom in this colour")
+        self.tint_check.setChecked(initial.tint)
+        layout.addWidget(self.tint_check)
 
     def _build_replies(self, layout: QVBoxLayout, initial: ProfileSettings) -> None:
         self.prompt_edit = QPlainTextEdit(initial.system_prompt)
@@ -335,4 +339,5 @@ class ProfileDialog(FramedDialog):
                 max_reply_tokens=self._lengths[self.length_combo.currentIndex()].value,
                 thinking=self.thinking_check.isChecked(),
             ),
+            tint=self.tint_check.isChecked(),
         )

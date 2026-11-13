@@ -51,6 +51,7 @@ class ProfileSettings:
     colour: ProfileColour
     system_prompt: str = ""
     generation: GenerationSettings = field(default_factory=GenerationSettings)
+    tint: bool = False  # colour the whole interface in the profile's colour
 
     @property
     def initial(self) -> str:
