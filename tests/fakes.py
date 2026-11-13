@@ -14,6 +14,7 @@ from dom.backend.errors import (
 )
 from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo, ModelStatus
 from dom.downloads import DownloadError
+from dom.downloads.hub import HubPage
 from dom.hardware import HardwareProfile, MemoryStatus
 from dom.hardware.models import GIB
 
@@ -30,6 +31,7 @@ TEST_HARDWARE = HardwareProfile(
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
+    from dom.catalog import HubModel
     from dom.config.settings import GenerationSettings
     from dom.domain import Conversation, Message, Profile
     from dom.ui.protocols import ServerState
@@ -65,6 +67,7 @@ class FakeInferenceService:
     first_token: asyncio.Event = field(default_factory=asyncio.Event)
     progress_seen: list[str] = field(default_factory=list[str])
     reloads: int = 0
+    unloaded: list[str] = field(default_factory=list[str])
     endless_started: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def start(self) -> None:
@@ -111,6 +114,11 @@ class FakeInferenceService:
         return LoadedModel(
             ModelInfo(model_id, ModelStatus.LOADED), 32768, "Test GPU (GPU)", tuned=True
         )
+
+    async def forget_model(self, model_id: str) -> None:
+        self.unloaded.append(model_id)
+        if self._loaded == model_id:
+            self._loaded = None
 
     def hardware_profile(self) -> HardwareProfile | None:
         return TEST_HARDWARE
@@ -166,27 +174,63 @@ class FakeDownloads:
 
     files: set[str] = field(default_factory=set[str])
     partial: dict[str, int] = field(default_factory=dict[str, int])
+    origin: dict[str, str] = field(default_factory=dict[str, str])
     error: str | None = None
+    delete_error: str | None = None
     block: asyncio.Event | None = None
-    downloaded: list[str] = field(default_factory=list[str])
+    downloaded: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    deleted: list[str] = field(default_factory=list[str])
 
     async def installed_files(self) -> set[str]:
         return set(self.files)
 
+    async def sources(self) -> dict[str, str]:
+        return dict(self.origin)
+
     async def partial_bytes(self, filename: str) -> int:
         return self.partial.get(filename, 0)
 
-    async def download(
-        self, model_key: str, filename: str, progress: Callable[[int, int], None]
-    ) -> None:
+    async def download(self, repo: str, path: str, progress: Callable[[int, int], None]) -> None:
         progress(1, 2)
         if self.block is not None:
             await self.block.wait()
         if self.error is not None:
             raise DownloadError(self.error)
         progress(2, 2)
+        filename = path.rsplit("/", 1)[-1]
         self.files.add(filename)
-        self.downloaded.append(filename)
+        self.origin[filename] = repo
+        self.downloaded.append((repo, path))
+
+    async def delete(self, filename: str) -> None:
+        if self.delete_error is not None:
+            raise DownloadError(self.delete_error)
+        self.files.discard(filename)
+        self.origin.pop(filename, None)
+        self.deleted.append(filename)
+
+
+@dataclass
+class FakeSource:
+    """A ``ModelSource`` returning fixed pages; ``more`` is the page after the first."""
+
+    models: list[HubModel] = field(default_factory=list["HubModel"])
+    more: list[HubModel] = field(default_factory=list["HubModel"])
+    error: str | None = None
+    queries: list[str] = field(default_factory=list[str])
+
+    async def search(self, query: str) -> HubPage:
+        self.queries.append(query)
+        await asyncio.sleep(0)
+        if self.error is not None:
+            raise DownloadError(self.error)
+        words = query.lower().split()
+        found = [m for m in self.models if all(w in m.repo.lower() for w in words)]
+        return HubPage(tuple(found), "next" if self.more and not query else None)
+
+    async def page(self, url: str) -> HubPage:
+        assert url == "next"
+        return HubPage(tuple(self.more), None)
 
 
 @dataclass

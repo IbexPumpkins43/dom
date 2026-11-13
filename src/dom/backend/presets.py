@@ -68,6 +68,17 @@ class PresetFile:
             self._write()
             return True
 
+    def remove_model(self, model_id: str) -> bool:
+        """Drop one model's section (its file is being deleted); returns True if it had one.
+
+        llama-server lists every model with a section, even when its file is gone.
+        """
+        with self._lock:
+            if self._models.pop(model_id, None) is None:
+                return False
+            self._write()
+            return True
+
     def _write(self) -> None:
         text = render_presets(self._defaults, self._models)
         tmp = self._path.with_name(self._path.name + ".tmp")

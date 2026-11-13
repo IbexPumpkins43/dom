@@ -188,3 +188,14 @@ def test_model_path_comes_from_the_model_argument() -> None:
         }
     )
     assert models[0].path == "/x/m.gguf"
+
+
+def test_removing_a_model_drops_its_section(tmp_path: Path) -> None:
+    presets = PresetFile(tmp_path / "presets.ini", InferenceSettings())
+    presets.set_model("gone", InferenceSettings(ctx_size=4096))
+    presets.set_model("kept", InferenceSettings(ctx_size=8192))
+    assert presets.remove_model("gone")
+    assert not presets.remove_model("gone")
+    text = presets.path.read_text(encoding="utf-8")
+    assert "[gone]" not in text
+    assert "[kept]" in text

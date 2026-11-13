@@ -57,6 +57,11 @@ class LazyInferenceService:
         """Load a model with the real service."""
         return await self._require().select_model(model_id, on_progress)
 
+    async def forget_model(self, model_id: str) -> None:
+        """Forget a model with the real service (nothing to do if it is not running)."""
+        if self._inner is not None:
+            await self._inner.forget_model(model_id)
+
     def hardware_profile(self) -> HardwareProfile | None:
         """The real service's hardware profile, once it exists."""
         return self._inner.hardware_profile() if self._inner is not None else None

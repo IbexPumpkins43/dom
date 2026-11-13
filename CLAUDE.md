@@ -5,9 +5,11 @@
 **dom** is a desktop AI harness that makes local AI simple for people with no experience. Python + PySide6 (Qt) GUI,
 llama.cpp (`llama-server`) running locally as the inference backend. Everything runs on the
 user's machine: no cloud APIs, no telemetry. The app talks to `127.0.0.1` only, except for
-downloads the user explicitly starts (a catalog model from Hugging Face, or the llama.cpp
-engine from GitHub releases). All such traffic goes through `dom.downloads.make_client`, which
-refuses any host outside `ALLOWED_HOSTS`; nothing runs in the background. The dev-only
+browsing Hugging Face while the models screen is open (anonymous `/api/models` searches for
+GGUF chat models: `downloads/hub.py`), downloads the user explicitly starts (a model from
+Hugging Face, or the llama.cpp engine from GitHub releases). All such traffic goes through
+`dom.downloads.make_client`, which refuses any host outside `ALLOWED_HOSTS`; nothing runs in the
+background. The dev-only
 `scripts/fetch_test_assets.py` uses the same code to fetch the llama.cpp builds and two test
 models (Qwen3.5-0.8B Q4_K_M and Q8_0) into `.dev/`.
 
@@ -31,7 +33,7 @@ models (Qwen3.5-0.8B Q4_K_M and Q8_0) into `.dev/`.
 `src/dom/`: `domain/` (dataclasses, enums) · `config/` (paths, finding llama-server,
 `InferenceSettings`) · `storage/` (SQLite chats) · `hardware/` (RAM/CPU/GPU detection) ·
 `tuning/` (per-model settings, CPU/GPU benchmark) · `backend/` (llama-server process, HTTP
-client, presets file, `InferenceService`) · `catalog/` (downloadable models, suggestions) ·
+client, presets file, `InferenceService`) · `catalog/` (Hugging Face models, quant names and sizes, suggestions) ·
 `downloads/` (allow-listed, verified downloads) · `ui/` (Qt-free controllers + PySide6 widgets) ·
 `app.py` (composition root) · `selftest.py`. Controllers depend on `typing.Protocol`s and are
 tested with the fakes in `tests/fakes.py`.

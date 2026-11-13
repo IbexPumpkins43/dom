@@ -44,6 +44,10 @@ class InferenceService(Protocol):
         """
         ...
 
+    async def forget_model(self, model_id: str) -> None:
+        """Unload ``model_id`` and forget its tuned settings, before its file is deleted."""
+        ...
+
     def hardware_profile(self) -> HardwareProfile | None:
         """What was detected about this computer, once the server has started."""
         ...

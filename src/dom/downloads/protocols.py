@@ -7,22 +7,42 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from dom.downloads.hub import HubPage
+
+
+class ModelSource(Protocol):
+    """Finds models to download (Hugging Face search)."""
+
+    async def search(self, query: str) -> HubPage:
+        """The first page of models matching ``query`` ("" for the most popular)."""
+        ...
+
+    async def page(self, url: str) -> HubPage:
+        """A further page of results (a page's ``next_url``)."""
+        ...
+
 
 class ModelDownloads(Protocol):
-    """Downloads catalog models into the models folder."""
+    """The models folder: downloads into it and deletions from it."""
 
     async def installed_files(self) -> set[str]:
         """Names of the model files already present."""
+        ...
+
+    async def sources(self) -> dict[str, str]:
+        """Downloaded file name -> the repository it came from."""
         ...
 
     async def partial_bytes(self, filename: str) -> int:
         """Bytes of an unfinished earlier download of ``filename``."""
         ...
 
-    async def download(
-        self, model_key: str, filename: str, progress: Callable[[int, int], None]
-    ) -> None:
-        """Download (or resume) one file; cancel the task to pause."""
+    async def download(self, repo: str, path: str, progress: Callable[[int, int], None]) -> None:
+        """Download (or resume) file ``path`` of ``repo``; cancel the task to pause."""
+        ...
+
+    async def delete(self, filename: str) -> None:
+        """Delete a downloaded model file."""
         ...
 
 

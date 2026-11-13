@@ -37,7 +37,9 @@ from dom.hardware.probe import read_usage
 from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.icons import Icon, icon_svg, make_icon
+from dom.ui.library import Fit, ModelCard, ScreenState, Version
 from dom.ui.main_window import MainWindow
+from dom.ui.models_screen import ModelsScreen, facts_text, fit_text
 from dom.ui.profile_widgets import (
     BUTTON_NAME_MAX_CHARS,
     ProfileButton,
@@ -490,3 +492,99 @@ def test_caption_symbols_are_sharp(qt_app: QApplication, kind: str) -> None:
     }
     assert drawn == {QColor(qt_app.palette().color(QPalette.ColorRole.WindowText)).name()}
     button.close()
+
+
+def _card(key: str, *, installed: str | None = None, fit: Fit = Fit.GOOD) -> ModelCard:
+    versions = (
+        Version("M-Q4_K_M.gguf", "Q4_K_M", 2_700_000_000, Fit.GOOD),
+        Version("M-Q8_0.gguf", "Q8_0", 4_500_000_000, Fit.SLOW),
+    )
+    return ModelCard(
+        key=key,
+        title=key.rsplit("/", maxsplit=1)[-1],
+        author="org",
+        params_b=4.0,
+        downloads=1_234_567,
+        likes=340,
+        versions=versions,
+        selected="M-Q4_K_M.gguf",
+        installed=installed,
+        fit=fit,
+        est_tokens_per_s=12.0,
+        downloading=False,
+        partial_bytes=0,
+    )
+
+
+STATE = ScreenState(query="", loading=False, error=None, can_load_more=True, hardware_text="hw")
+
+
+def test_models_screen_grid_and_actions(qt_app: QApplication) -> None:
+    screen = ModelsScreen()
+    screen.resize(1000, 700)
+    screen.show()
+    cards = [_card("org/A"), _card("org/B", installed="M-Q4_K_M.gguf"), _card("org/C")]
+    screen.show_cards(cards, STATE)
+    qt_app.processEvents()
+    assert screen.columns() == 3  # noqa: PLR2004
+    a, b, _c = screen.card_widgets()
+    assert facts_text(a.card) == "4B parameters · 1.2M downloads · 340 likes"
+    assert a.button.text() == "Download"
+    assert b.button.text() == "Delete"
+    assert not b.versions.isVisible()
+    seen: list[object] = []
+
+    def pair(first: str, second: str) -> None:
+        seen.append((first, second))
+
+    screen.download_requested.connect(seen.append)
+    screen.delete_requested.connect(pair)
+    screen.version_chosen.connect(pair)
+    a.button.click()
+    b.button.click()
+    a.versions.setCurrentIndex(1)
+    a.versions.activated.emit(1)
+    assert seen == ["org/A", ("M-Q4_K_M.gguf", "B"), ("org/A", "M-Q8_0.gguf")]
+    screen.show_download_progress("org/A", 1_000_000_000, 2_700_000_000)
+    assert a.progress.isVisible()
+    assert a.progress.text() == "1.0 of 2.7 GB"
+
+    screen.resize(500, 700)
+    qt_app.processEvents()
+    assert screen.columns() == 1
+    screen.close()
+
+
+def test_models_screen_status_and_too_large_cards(qt_app: QApplication) -> None:
+    screen = ModelsScreen()
+    screen.show_cards([_card("org/A", fit=Fit.TOO_LARGE)], STATE)
+    [card] = screen.card_widgets()
+    assert not card.button.isEnabled()
+    screen.show_cards([], replace(STATE, query="zzz"))
+    assert "No chat models found" in screen.status.text()
+    screen.show_cards([], replace(STATE, loading=True))
+    assert screen.status.text() == "Searching Hugging Face…"
+    assert not screen.more_button.isVisibleTo(screen)
+    assert qt_app is not None
+
+
+def test_get_models_shows_the_models_screen_in_place_of_the_chat(qt_app: QApplication) -> None:
+    window = MainWindow(on_closed=lambda: None)
+    window.show_conversations([_conversation("c1", "Hello")], "c1")
+    assert not window.showing_models()
+    window.show_models_screen()
+    assert window.showing_models()
+    title_bar = window.findChild(TitleBar)
+    assert title_bar is not None
+    assert title_bar.title() == "Models"
+    window.models_screen().back_requested.emit()
+    assert not window.showing_models()
+    assert title_bar.title() == "Hello"
+    assert qt_app is not None
+
+
+def test_fit_text_is_short_and_plain() -> None:
+    card = _card("org/A")
+    assert fit_text(card) == "Runs well · about 9 words/s"
+    assert fit_text(replace(card, fit=Fit.SLOW, est_tokens_per_s=2.0)) == "Slow · about 2 words/s"
+    assert fit_text(replace(card, fit=Fit.TOO_LARGE)) == "Too large for this computer"

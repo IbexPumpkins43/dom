@@ -332,3 +332,24 @@ async def test_deleting_a_missing_chat_shows_an_error(
     await controller.startup()
     await controller.delete_conversation("does-not-exist")
     assert any("Could not delete" in e for e in view.errors)
+
+
+async def test_releasing_the_loaded_model_unloads_it(
+    controller: ChatController, service: FakeInferenceService, view: RecordingView
+) -> None:
+    await _ready(controller)
+    await controller.release_model("model-a")
+    assert service.unloaded == ["model-a"]
+    assert controller.loaded_model is None
+    await controller.models_changed()
+    assert view.selected_model is None
+    assert not view.can_send
+
+
+async def test_releasing_another_model_keeps_the_chat_going(
+    controller: ChatController, service: FakeInferenceService
+) -> None:
+    await _ready(controller)
+    await controller.release_model("model-b")
+    assert service.unloaded == ["model-b"]
+    assert controller.loaded_model == "model-a"

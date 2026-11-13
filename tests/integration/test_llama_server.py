@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import TypeGuard
@@ -44,7 +45,7 @@ pytestmark = [
 
 
 async def _make_service(
-    tmp_path: Path, builds: list[ServerBuild]
+    tmp_path: Path, builds: list[ServerBuild], models_dir: Path = MODELS_DIR
 ) -> tuple[LlamaInferenceService, LlamaServerProcess, AutoTuning]:
     """The same wiring as ``dom.app.build_service``, keeping the process for inspection."""
     hardware = await HardwareProbe().detect(builds)
@@ -54,7 +55,7 @@ async def _make_service(
     process = LlamaServerProcess(
         ServerConfig(
             binary=binary,
-            models_dir=MODELS_DIR,
+            models_dir=models_dir,
             cache_dir=tmp_path / "cache",
             log_path=tmp_path / "llama-server.log",
             presets=presets,
@@ -188,3 +189,24 @@ async def test_gpu_build_is_chosen_and_benchmarked(tmp_path: Path) -> None:
     finally:
         await service.stop()
     assert not process.is_running
+
+
+async def test_a_loaded_model_can_be_forgotten_and_deleted(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    models.mkdir()
+    shutil.copyfile(MODELS_DIR / f"{Q4}.gguf", models / f"{Q4}.gguf")
+    service, _process, tuning = await _make_service(
+        tmp_path, [ServerBuild("cpu", CPU_BINARY)], models
+    )
+    await service.start()
+    try:
+        await service.select_model(Q4)
+        assert f"[{Q4}]" in tuning.presets.path.read_text(encoding="utf-8")
+        await service.forget_model(Q4)
+        statuses = {m.id: m.status for m in await service.list_models()}
+        assert statuses[Q4] == ModelStatus.UNLOADED
+        (models / f"{Q4}.gguf").unlink()  # would fail on Windows if it were still loaded
+        assert f"[{Q4}]" not in tuning.presets.path.read_text(encoding="utf-8")
+        assert [m.id for m in await service.reload_models()] == []
+    finally:
+        await service.stop()

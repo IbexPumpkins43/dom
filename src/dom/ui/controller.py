@@ -168,6 +168,23 @@ class ChatController:
         if self._server_state == ServerState.READY:
             await self._refresh_models(rescan=True)
 
+    async def release_model(self, model_id: str) -> None:
+        """Stop using ``model_id`` so its file can be deleted: stop its reply and unload it."""
+        if self._selected_model == model_id:
+            await self.stop_reply()
+            if self._load_task is not None and not self._load_task.done():
+                self._load_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._load_task
+            self._selected_model = None
+            self._view.show_model_details(None)
+        if self._server_state != ServerState.READY:
+            return
+        try:
+            await self._service.forget_model(model_id)
+        except BackendError:
+            logger.warning("Could not unload %s before deleting it", model_id, exc_info=True)
+
     async def _watch_for_crash(self) -> None:
         code = await self._service.wait_for_crash()
         if code is None or self._shut_down:

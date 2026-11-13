@@ -19,7 +19,6 @@ from dom.backend.errors import EngineMissingError
 from dom.backend.lazy import LazyInferenceService
 from dom.backend.presets import PresetFile
 from dom.backend.service import AutoTuning
-from dom.catalog import CATALOG
 from dom.config import (
     AppPaths,
     InferenceSettings,
@@ -30,6 +29,7 @@ from dom.config import (
     is_dev_mode,
 )
 from dom.downloads.engine import EngineInstaller
+from dom.downloads.hub import HubSearch
 from dom.downloads.library import ModelLibrary
 from dom.hardware import HardwareProbe
 from dom.hardware.probe import read_memory, read_usage
@@ -136,10 +136,11 @@ async def _run(
     profiles = ProfileController(store, window, controller)
     probe = HardwareProbe()
     library = LibraryController(
-        CATALOG,
-        ModelLibrary(paths.models_dir, CATALOG),
+        HubSearch(),
+        ModelLibrary(paths.models_dir),
         hardware=lambda: service.hardware_profile() or probe.basic(),
-        on_installed=controller.models_changed,
+        on_changed=controller.models_changed,
+        before_delete=controller.release_model,
     )
     window.attach(controller, library, profiles)
     window.show()

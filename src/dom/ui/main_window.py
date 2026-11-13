@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
 from dom.ui.controller import spawn
 from dom.ui.dialogs import Question, ask
 from dom.ui.icons import ICON_SIZE, Icon, make_icon
-from dom.ui.library_dialog import LibraryDialog
+from dom.ui.models_screen import ModelsScreen
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog
 from dom.ui.protocols import ServerState
 from dom.ui.theme import BRASA, apply_theme, theme_for
@@ -75,8 +76,8 @@ class MainWindow(QMainWindow):
         self._controller: ChatController | None = None
         self._library: LibraryController | None = None
         self._profiles: ProfileController | None = None
-        self._library_dialog: LibraryDialog | None = None
         self._offered_library = False
+        self._chat_title = "New chat"
         self._tasks: set[asyncio.Task[None]] = set()
         self._closing = False
         self._closed = False
@@ -171,9 +172,18 @@ class MainWindow(QMainWindow):
         self._profile_button.hide()  # until the profiles are known
         self._sidebar.set_profile_widget(self._profile_button)
         layout.addWidget(self._sidebar)
-        layout.addWidget(main, 1)
+        layout.addWidget(self._build_pages(main), 1)
         self._frame = WindowFrame(self._build_title_bar(), body)
         self.setCentralWidget(self._frame)
+
+    def _build_pages(self, chat: QWidget) -> QStackedWidget:
+        """The chat, or the models screen in its place."""
+        self._models_screen = ModelsScreen()
+        self._models_screen.back_requested.connect(self.show_chat)
+        self._pages = QStackedWidget()
+        self._pages.addWidget(chat)
+        self._pages.addWidget(self._models_screen)
+        return self._pages
 
     def _build_title_bar(self) -> TitleBar:
         self._theme = BRASA
@@ -225,11 +235,12 @@ class MainWindow(QMainWindow):
         button.add_requested.connect(self._add_profile)
         button.edit_requested.connect(self._edit_profile)
         button.delete_requested.connect(self._confirm_delete_profile)
-        self._sidebar.get_models_requested.connect(self._open_library)
+        self._sidebar.get_models_requested.connect(self.show_models_screen)
+        self._connect_models_screen(library)
         self._input.submitted.connect(self._submit)
         self._send.clicked.connect(self._send_or_stop)
         self._picker.model_chosen.connect(self._on_model_chosen)
-        self._sidebar.new_chat_requested.connect(lambda: self._run(controller.new_chat()))
+        self._sidebar.new_chat_requested.connect(self._new_chat)
         self._sidebar.conversation_selected.connect(self._on_conversation_selected)
         self._sidebar.delete_requested.connect(self._confirm_delete)
         self._banner.action_clicked.connect(self._on_banner_action)
@@ -266,7 +277,7 @@ class MainWindow(QMainWindow):
         self._picker.set_models(models, selected_id)
         if not models and not self._offered_library and self._server_state == ServerState.READY:
             self._offered_library = True
-            self._open_library()
+            self.show_models_screen()
 
     def show_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
@@ -274,7 +285,9 @@ class MainWindow(QMainWindow):
         """Fill the sidebar, and show the open chat's title in the title bar."""
         self._sidebar.set_conversations(conversations, current_id)
         current = next((c for c in conversations if c.id == current_id), None)
-        self._title_bar.set_title(current.title if current is not None else "New chat")
+        self._chat_title = current.title if current is not None else "New chat"
+        if not self.showing_models():
+            self._title_bar.set_title(self._chat_title)
 
     def show_messages(self, messages: Sequence[Message]) -> None:
         """Show a conversation."""
@@ -455,19 +468,21 @@ class MainWindow(QMainWindow):
         else:
             self._run(self._controller.restart_server())
 
-    def _open_library(self) -> None:
-        library = self._library
-        if library is None:
-            return
-        if self._library_dialog is None:
-            dialog = LibraryDialog(self)
-            dialog.download_requested.connect(self._download_model)
-            dialog.cancel_requested.connect(self._cancel_download)
-            library.attach(dialog)
-            self._library_dialog = dialog
-        self._library_dialog.show()
-        self._library_dialog.raise_()
-        self._run(library.refresh())
+    # ---- models screen -------------------------------------------------------------------
+
+    def _connect_models_screen(self, library: LibraryController) -> None:
+        screen = self._models_screen
+        library.attach(screen)
+        screen.search_requested.connect(self._search_models)
+        screen.load_more_requested.connect(lambda: self._run(library.load_more()))
+        screen.download_requested.connect(self._download_model)
+        screen.cancel_requested.connect(self._cancel_download)
+        screen.version_chosen.connect(self._choose_version)
+        screen.delete_requested.connect(self._confirm_delete_model)
+
+    def _search_models(self, text: str) -> None:
+        if self._library is not None:
+            self._run(self._library.search(text))
 
     def _download_model(self, key: str) -> None:
         if self._library is not None:
@@ -477,11 +492,55 @@ class MainWindow(QMainWindow):
         if self._library is not None:
             self._run(self._library.cancel(key))
 
+    def _choose_version(self, key: str, path: str) -> None:
+        if self._library is not None:
+            self._run(self._library.choose_version(key, path))
+
+    def models_screen(self) -> ModelsScreen:
+        """The models screen (shown in place of the chat)."""
+        return self._models_screen
+
+    def showing_models(self) -> bool:
+        """True while the models screen is shown instead of the chat."""
+        return self._pages.currentWidget() is self._models_screen
+
+    def show_models_screen(self) -> None:
+        """Show the models screen in place of the chat."""
+        self._pages.setCurrentWidget(self._models_screen)
+        self._title_bar.set_title("Models")
+        self._models_screen.search.setFocus()
+        if self._library is not None:
+            self._run(self._library.open())
+
+    def show_chat(self) -> None:
+        """Go back from the models screen to the chat."""
+        self._pages.setCurrentIndex(0)
+        self._title_bar.set_title(self._chat_title)
+
+    def _new_chat(self) -> None:
+        self.show_chat()
+        if self._controller is not None:
+            self._run(self._controller.new_chat())
+
+    def _confirm_delete_model(self, filename: str, title: str) -> None:
+        library = self._library
+        if library is None:
+            return
+        question = Question(
+            "Delete model",
+            f"Delete “{title}” from this computer?\n\n{filename} will be removed. You can "
+            "download it again later.",
+            "Delete",
+            danger=True,
+        )
+        ask(self, question, lambda: self._run(library.delete(filename)))
+
     def _on_model_chosen(self, model_id: str) -> None:
         if self._controller is not None:
             self._run(self._controller.select_model(model_id))
 
     def _on_conversation_selected(self, conversation_id: str) -> None:
+        self.show_chat()
         if self._controller is not None:
             self._run(self._controller.open_conversation(conversation_id))
 

@@ -1,4 +1,4 @@
-"""Which catalog models suit this computer.
+"""Which models suit this computer.
 
 A rough, explainable estimate (it is only used to suggest a download; once a model is loaded,
 ``dom.tuning`` sizes it exactly from llama.cpp's own measurement):
@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from dom.catalog.quants import bits_per_weight
 from dom.hardware.models import GIB
 
 if TYPE_CHECKING:
@@ -32,6 +33,8 @@ WEIGHTS_OVERHEAD = 1.05
 CPU_BANDWIDTH = 30e9
 GPU_BANDWIDTH = 300e9  # bytes/s: a mid-range dedicated graphics card
 MIN_COMFORTABLE_TPS = 8.0
+MIN_GOOD_BITS = 4.0  # Q4 and above (IQ4_XS is ~4.3)
+MIN_USABLE_BITS = 2.5  # below this (IQ2_XXS, IQ1_*) models mostly produce nonsense
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,12 +77,26 @@ def estimate_tokens_per_s(model: CatalogModel, quant: CatalogQuant, hw: Hardware
 
 
 def _choose_quant(model: CatalogModel, hw: HardwareProfile, budget: int) -> CatalogQuant | None:
-    """The first preferred file that fits and feels responsive, else the fastest that fits."""
+    """The version to suggest (``model.quants`` is in order of preference).
+
+    The first good-quality file (about 4 bits per weight or more) that fits and feels
+    responsive; else the first good-quality file that fits, even if slow (below ~4 bits answers
+    get noticeably worse, which is worse than waiting); else the largest lower-quality file that
+    fits, but never one below ~2.5 bits (those barely work: the model counts as too large).
+    """
     fitting = [q for q in model.quants if needed_bytes(q) <= budget]
-    for quant in fitting:
+    good = [q for q in fitting if _bits(q) >= MIN_GOOD_BITS]
+    for quant in good:
         if estimate_tokens_per_s(model, quant, hw) >= MIN_COMFORTABLE_TPS:
             return quant
-    return min(fitting, key=lambda q: q.size_bytes, default=None)
+    if good:
+        return good[0]
+    usable = [q for q in fitting if _bits(q) >= MIN_USABLE_BITS]
+    return max(usable, key=lambda q: q.size_bytes, default=None)
+
+
+def _bits(quant: CatalogQuant) -> float:
+    return bits_per_weight(quant.label) or 16.0
 
 
 def suggest(
@@ -89,7 +106,7 @@ def suggest(
     budget = memory_for_models(hardware)
     suggestions: list[Suggestion] = []
     for model in catalog:
-        have = next((q for q in model.quants if q.filename in installed), None)
+        have = next((q for q in model.quants if q.local_name in installed), None)
         chosen = have or _choose_quant(model, hardware, budget)
         speed = estimate_tokens_per_s(model, chosen, hardware) if chosen else None
         suggestions.append(Suggestion(model, chosen, speed, installed=have is not None))

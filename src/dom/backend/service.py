@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 MEASUREMENT_WAIT_S = 120.0
 MEASUREMENT_POLL_S = 0.5
+UNLOAD_TIMEOUT_S = 60.0
 
 type Progress = Callable[[str], None]
 
@@ -106,6 +107,19 @@ class LlamaInferenceService:
     def hardware_profile(self) -> HardwareProfile | None:
         """What was detected about this computer."""
         return self._tuning.hardware
+
+    async def forget_model(self, model_id: str) -> None:
+        """Unload ``model_id`` (waiting until it is) and drop its tuned settings and
+        measurements, so the router stops listing it once its file is deleted."""
+        client = self._require_client()
+        models = await client.list_models()
+        model = next((m for m in models if m.id == model_id), None)
+        if model is not None and model.status in (ModelStatus.LOADED, ModelStatus.LOADING):
+            await client.unload_model(model_id)
+            await client.wait_for_status(model_id, ModelStatus.UNLOADED, timeout=UNLOAD_TIMEOUT_S)
+        self._plans.pop(model_id, None)
+        self._memories.pop(model_id, None)
+        await asyncio.to_thread(self._tuning.presets.remove_model, model_id)
 
     async def reload_models(self) -> list[ModelInfo]:
         """Re-scan the models folder, then list the models."""
