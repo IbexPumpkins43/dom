@@ -42,7 +42,7 @@ REPLY_REDRAW_MS = 50
 INPUT_MAX_LINES = 8
 SIDEBAR_WIDTH = 260
 USAGE_BAR_HEIGHT = 4
-LOGO_SIZE = 180
+LOGO_WIDTH = 260
 LOGO_OPACITY = 0.16
 USAGE_HIGH_PERCENT = 85
 MODEL_PICKER_MIN_WIDTH = 220
@@ -254,10 +254,10 @@ class ChatArea(QScrollArea):
         self._logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._logo.setPixmap(
             render_logo(
-                LOGO_SIZE, opacity=LOGO_OPACITY, device_pixel_ratio=self.devicePixelRatioF()
+                LOGO_WIDTH, opacity=LOGO_OPACITY, device_pixel_ratio=self.devicePixelRatioF()
             )
         )
-        self._logo.resize(LOGO_SIZE, LOGO_SIZE)
+        self._logo.adjustSize()
         self._logo.raise_()  # above the chat canvas; it is only shown while the chat is empty
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 -- Qt override
@@ -271,7 +271,10 @@ class ChatArea(QScrollArea):
 
     def _place_logo(self) -> None:
         viewport = self.viewport()
-        self._logo.move((viewport.width() - LOGO_SIZE) // 2, (viewport.height() - LOGO_SIZE) // 2)
+        logo = self._logo.size()
+        self._logo.move(
+            (viewport.width() - logo.width()) // 2, (viewport.height() - logo.height()) // 2
+        )
         self._logo.setVisible(self._bubbles == 0)
 
     def set_notice(self, message: str | None) -> None:

@@ -12,20 +12,22 @@ LOGO_FILE = "logo.svg"
 
 
 def logo_svg() -> bytes:
-    """The dom logo (an ember in a hearth) as SVG."""
+    """The dom logo (the word "dom" in Bodoni Moda, as outlines) as SVG."""
     return files("dom.ui").joinpath("assets", LOGO_FILE).read_bytes()
 
 
-def render_logo(size: int, *, opacity: float = 1.0, device_pixel_ratio: float = 1.0) -> QPixmap:
-    """The logo as a ``size`` x ``size`` pixmap, sharp on high-DPI screens."""
+def render_logo(width: int, *, opacity: float = 1.0, device_pixel_ratio: float = 1.0) -> QPixmap:
+    """The logo ``width`` pixels wide (height keeps its proportions), sharp on high-DPI screens."""
     renderer = QSvgRenderer(QByteArray(logo_svg()))
-    pixels = round(size * device_pixel_ratio)
-    pixmap = QPixmap(pixels, pixels)
+    view = renderer.viewBoxF()
+    pixels = round(width * device_pixel_ratio)
+    height = max(1, round(pixels * view.height() / view.width()))
+    pixmap = QPixmap(pixels, height)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setOpacity(opacity)
-    renderer.render(painter, QRectF(0, 0, pixels, pixels))
+    renderer.render(painter, QRectF(0, 0, pixels, height))
     painter.end()
     pixmap.setDevicePixelRatio(device_pixel_ratio)
     return pixmap

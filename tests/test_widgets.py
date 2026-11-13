@@ -180,6 +180,7 @@ def test_logo_is_packaged_and_renders(qt_app: QApplication) -> None:
     assert b"<svg" in logo_svg()
     pixmap = render_logo(64, opacity=0.5, device_pixel_ratio=2.0)
     assert pixmap.width() == 128  # noqa: PLR2004 -- 64 px at 2x
+    assert 0 < pixmap.height() < pixmap.width()  # a wordmark: wider than tall
     assert not pixmap.toImage().isNull()
     assert qt_app is not None
 
