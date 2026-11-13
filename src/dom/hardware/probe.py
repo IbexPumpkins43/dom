@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import platform
 import re
 import subprocess
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import psutil
 
+from dom.config.binary import run_engine_tool
 from dom.hardware.models import MIB, GpuDevice, HardwareProfile, MemoryStatus
 
 if TYPE_CHECKING:
@@ -91,17 +91,8 @@ def read_memory() -> MemoryStatus:
 
 def list_devices(build: ServerBuild) -> list[tuple[str, str, int, int]]:
     """Run ``<build> --list-devices``; any failure means "no GPUs" (logged, not raised)."""
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("LLAMA_")}
     try:
-        result = subprocess.run(
-            [str(build.path), "--list-devices"],
-            capture_output=True,
-            text=True,
-            timeout=LIST_DEVICES_TIMEOUT_S,
-            env=env,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        result = run_engine_tool([str(build.path), "--list-devices"], LIST_DEVICES_TIMEOUT_S)
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("Could not list devices of %s: %s", build.path, exc)
         return []

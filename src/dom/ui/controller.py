@@ -155,16 +155,8 @@ class ChatController:
 
     async def models_changed(self) -> None:
         """Re-scan the models folder after a download."""
-        if self._server_state != ServerState.READY:
-            return
-        try:
-            models = await self._service.reload_models()
-        except BackendError as exc:
-            self._view.show_error(str(exc))
-            return
-        self._models = [self._as_loading(m) for m in models]
-        self._view.show_models(self._models, self._selected_model)
-        self._update_input()
+        if self._server_state == ServerState.READY:
+            await self._refresh_models(rescan=True)
 
     async def _watch_for_crash(self) -> None:
         code = await self._service.wait_for_crash()
@@ -228,9 +220,12 @@ class ChatController:
             await asyncio.sleep(MODEL_POLL_INTERVAL_S)
             await self._refresh_models()
 
-    async def _refresh_models(self) -> None:
+    async def _refresh_models(self, *, rescan: bool = False) -> None:
         try:
-            models = await self._service.list_models()
+            if rescan:
+                models = await self._service.reload_models()
+            else:
+                models = await self._service.list_models()
         except BackendError as exc:
             self._view.show_error(str(exc))
             return

@@ -166,7 +166,17 @@ def install_release(archive: Path, bin_dir: Path, release: BinaryRelease) -> Pat
     """Unpack into ``bin_dir/<variant>/`` (replacing what is there) and write VERSION.
 
     Blocking; call it from a worker thread. Returns the installed directory.
+
+    Raises:
+        DownloadError: if the archive is damaged or cannot be unpacked (plain-English message).
     """
+    try:
+        return _install(archive, bin_dir, release)
+    except (OSError, tarfile.TarError, zipfile.BadZipFile) as exc:
+        raise DownloadError(f"Could not unpack {archive.name} into {bin_dir}: {exc}") from exc
+
+
+def _install(archive: Path, bin_dir: Path, release: BinaryRelease) -> Path:
     dest = bin_dir / release.variant
     bin_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=bin_dir, prefix=".unpack-") as tmp:

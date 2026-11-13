@@ -15,10 +15,6 @@ class EngineMissingError(ServerStartError):
     """llama-server is not installed (dom can offer to download it)."""
 
 
-class ServerCrashedError(BackendError):
-    """llama-server stopped unexpectedly."""
-
-
 class ServerUnavailableError(BackendError):
     """llama-server could not be reached over HTTP."""
 

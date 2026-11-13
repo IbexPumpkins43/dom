@@ -7,7 +7,7 @@ import itertools
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -20,6 +20,7 @@ from dom.backend.errors import (
     ServerUnavailableError,
 )
 from dom.domain import ChatDelta, MemoryUse, ModelInfo, ModelMemory, ModelStatus
+from dom.jsonshape import int_or_zero, is_array, is_object, str_or_none
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -32,7 +33,6 @@ logger = logging.getLogger(__name__)
 # ("cache") and presets; dom only shows the models folder.
 MODELS_DIR_SOURCE = "models_dir"
 
-HTTP_BAD_REQUEST = 400
 HTTP_NOT_FOUND = 404
 _SSE_DATA_PREFIX = "data:"
 _SSE_DONE = "[DONE]"
@@ -43,25 +43,13 @@ DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 STREAM_TIMEOUT = httpx.Timeout(None, connect=5.0)
 
 
-def _is_object(value: object) -> TypeGuard[dict[str, object]]:
-    return isinstance(value, dict)
-
-
-def _is_array(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
-
-
-def _str_or_none(value: object) -> str | None:
-    return value if isinstance(value, str) else None
-
-
 def parse_model_status(status: object) -> tuple[ModelStatus, int | None]:
     """Map a router ``status`` object to a ``ModelStatus`` and exit code.
 
     The router has no "failed" value: a failed load is ``unloaded`` with ``failed: true``.
     ``sleeping`` models wake on the next request, so they count as loaded.
     """
-    if not _is_object(status):
+    if not is_object(status):
         return ModelStatus.UNLOADED, None
     value = status.get("value")
     exit_code = status.get("exit_code")
@@ -77,21 +65,17 @@ def parse_model_status(status: object) -> tuple[ModelStatus, int | None]:
             return ModelStatus.UNLOADED, None
 
 
-def _int(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
 def _parse_memory_use(point: object) -> MemoryUse | None:
-    if not _is_object(point) or not isinstance(n_ctx := point.get("n_ctx"), int):
+    if not is_object(point) or not isinstance(n_ctx := point.get("n_ctx"), int):
         return None
     devices = point.get("devices")
-    if not _is_array(devices):
+    if not is_array(devices):
         return None
     device_bytes = host_bytes = 0
     for entry in devices:
-        if not _is_object(entry):
+        if not is_object(entry):
             continue
-        used = _int(entry.get("model")) + _int(entry.get("context")) + _int(entry.get("compute"))
+        used = sum(int_or_zero(entry.get(part)) for part in ("model", "context", "compute"))
         if entry.get("kind") == "device":
             device_bytes += used
         else:  # "host" and host-side "buffer_type" entries (e.g. CPU_REPACK) live in RAM
@@ -101,7 +85,7 @@ def _parse_memory_use(point: object) -> MemoryUse | None:
 
 def parse_model_memory(memory: object) -> ModelMemory | None:
     """Parse the router's ``memory`` field; ``None`` unless it is fully measured."""
-    if not _is_object(memory) or memory.get("status") != "measured":
+    if not is_object(memory) or memory.get("status") != "measured":
         return None
     low = _parse_memory_use(memory.get("min"))
     high = _parse_memory_use(memory.get("max"))
@@ -112,7 +96,7 @@ def parse_model_memory(memory: object) -> ModelMemory | None:
 
 def _model_arg(status: object) -> str | None:
     """The ``--model`` path in the command line the router reports for a model."""
-    if not _is_object(status) or not _is_array(args := status.get("args")):
+    if not is_object(status) or not is_array(args := status.get("args")):
         return None
     for flag, value in itertools.pairwise(args):
         if flag in ("--model", "-m") and isinstance(value, str):
@@ -122,11 +106,11 @@ def _model_arg(status: object) -> str | None:
 
 def parse_models(payload: object) -> list[ModelInfo]:
     """Parse a ``GET /models`` response into models from the models folder."""
-    if not _is_object(payload) or not _is_array(data := payload.get("data")):
+    if not is_object(payload) or not is_array(data := payload.get("data")):
         raise BackendError("The AI server sent an unexpected model list.")
     models: list[ModelInfo] = []
     for entry in data:
-        if not _is_object(entry) or not isinstance(model_id := entry.get("id"), str):
+        if not is_object(entry) or not isinstance(model_id := entry.get("id"), str):
             continue
         source = entry.get("source")
         if source is not None and source != MODELS_DIR_SOURCE:
@@ -138,11 +122,11 @@ def parse_models(payload: object) -> list[ModelInfo]:
             ModelInfo(
                 id=model_id,
                 status=status,
-                path=_str_or_none(entry.get("path")) or _model_arg(entry.get("status")),
+                path=str_or_none(entry.get("path")) or _model_arg(entry.get("status")),
                 exit_code=exit_code,
                 context_length=context_length if isinstance(context_length, int) else None,
                 memory=parse_model_memory(memory),
-                memory_state=_str_or_none(memory.get("status")) if _is_object(memory) else None,
+                memory_state=str_or_none(memory.get("status")) if is_object(memory) else None,
             )
         )
     models.sort(key=lambda m: m.id.lower())
@@ -155,9 +139,9 @@ def _error_from_response(status_code: int, body: str) -> ApiError:
         payload: object = json.loads(body)
     except ValueError:
         payload = None
-    if _is_object(payload) and _is_object(err := payload.get("error")):
-        message = _str_or_none(err.get("message")) or message
-        error_type = _str_or_none(err.get("type"))
+    if is_object(payload) and is_object(err := payload.get("error")):
+        message = str_or_none(err.get("message")) or message
+        error_type = str_or_none(err.get("type"))
     if status_code == HTTP_NOT_FOUND:
         return ModelNotFoundError(status_code, message, error_type)
     return ApiError(status_code, message, error_type)
@@ -181,19 +165,19 @@ def parse_sse_line(line: str) -> ChatDelta | None:
         payload: object = json.loads(data)
     except ValueError as exc:
         raise ChatStreamError("The AI server sent a reply that could not be read.") from exc
-    if not _is_object(payload):
+    if not is_object(payload):
         return None
-    if _is_object(err := payload.get("error")):
-        message = _str_or_none(err.get("message")) or "unknown error"
+    if is_object(err := payload.get("error")):
+        message = str_or_none(err.get("message")) or "unknown error"
         raise ChatStreamError(f"The AI server stopped the reply: {message}")
     choices = payload.get("choices")
-    if not _is_array(choices) or not choices or not _is_object(choice := choices[0]):
+    if not is_array(choices) or not choices or not is_object(choice := choices[0]):
         return None
     delta = choice.get("delta")
-    if not _is_object(delta):
+    if not is_object(delta):
         return None
-    content = _str_or_none(delta.get("content")) or ""
-    reasoning = _str_or_none(delta.get("reasoning_content")) or ""
+    content = str_or_none(delta.get("content")) or ""
+    reasoning = str_or_none(delta.get("reasoning_content")) or ""
     if not content and not reasoning:
         return None
     return ChatDelta(content=content, reasoning=reasoning)
@@ -308,11 +292,6 @@ class LlamaClient:
             ):
                 raise ModelLoadError(f"The AI server never started loading {model_id}.")
             await asyncio.sleep(poll_interval)
-
-    async def switch_model(self, model_id: str, *, poll_interval: float = 0.25) -> ModelInfo:
-        """Unload any other model, then load ``model_id`` and wait until it is ready."""
-        await self.unload_others(model_id, poll_interval=poll_interval)
-        return await self.load_and_wait(model_id, poll_interval=poll_interval)
 
     async def unload_others(self, model_id: str, *, poll_interval: float = 0.25) -> ModelInfo:
         """Unload every loaded or loading model except ``model_id``; return its info."""

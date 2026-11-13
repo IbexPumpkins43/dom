@@ -136,17 +136,23 @@ async def download_verified(
             mismatch (the partial file is deleted).
     """
     partial = _PartialFile(dest.with_name(dest.name + ".part"))
-    await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
-    await asyncio.to_thread(partial.open_existing, remote.size)
-    if partial.offset < remote.size:
-        await _stream_into(client, remote, partial, progress)
-    if partial.digest.hexdigest() != remote.sha256:
-        partial.path.unlink(missing_ok=True)
+    try:
+        await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(partial.open_existing, remote.size)
+        if partial.offset < remote.size:
+            await _stream_into(client, remote, partial, progress)
+        if partial.digest.hexdigest() != remote.sha256:
+            partial.path.unlink(missing_ok=True)
+            raise DownloadError(
+                f"{remote.name} was damaged while downloading (its checksum does not match). "
+                "Please try again."
+            )
+        await asyncio.to_thread(partial.path.replace, dest)
+    except OSError as exc:
         raise DownloadError(
-            f"{remote.name} was damaged while downloading (its checksum does not match). "
-            "Please try again."
-        )
-    await asyncio.to_thread(partial.path.replace, dest)
+            f"Could not save {remote.name} to {dest.parent} ({exc.strerror or exc}). "
+            "Is the disk full?"
+        ) from exc
 
 
 class _PartialFile:

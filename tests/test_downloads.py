@@ -233,6 +233,14 @@ def test_install_release_flattens_and_pins_version(tmp_path: Path) -> None:
 def test_install_release_rejects_unsafe_archives(tmp_path: Path) -> None:
     archive = _tarball(tmp_path / "bad.tar.gz", {"../escape": b"x", "llama-server": b"bin"})
     release = BinaryRelease(Variant.CPU, "v1", RemoteFile("x", "u", 1, "s"))
-    with pytest.raises((DownloadError, tarfile.TarError)):
+    with pytest.raises(DownloadError, match="Could not unpack"):
         install_release(archive, tmp_path / "bin", release)
     assert not (tmp_path / "escape").exists()
+
+
+async def test_disk_errors_become_download_errors(tmp_path: Path) -> None:
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x", encoding="utf-8")
+    async with _client(lambda _r: httpx.Response(200, content=CONTENT)) as client:
+        with pytest.raises(DownloadError, match="Could not save"):
+            await download_verified(client, REMOTE, blocker / "model.gguf")

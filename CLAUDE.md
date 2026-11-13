@@ -21,6 +21,20 @@ models (Qwen3.5-0.8B Q4_K_M and Q8_0) into `.dev/`.
 - Lint: `uv run ruff check . --fix`
 - Type check: `uv run pyright`
 - Tests: `uv run pytest` (integration: `uv run pytest -m integration`)
+- Build a release for this OS/CPU: `uv run python scripts/build_release.py` (CI builds all four
+  platforms: `.github/workflows/release.yml`)
+- End-to-end check of an installation without a window: `dom --self-test` (or
+  `DOM_DEV=1 uv run python -m dom --self-test`); result in `<data>/logs/dom.log`
+
+## Layout
+
+`src/dom/`: `domain/` (dataclasses, enums) · `config/` (paths, finding llama-server,
+`InferenceSettings`) · `storage/` (SQLite chats) · `hardware/` (RAM/CPU/GPU detection) ·
+`tuning/` (per-model settings, CPU/GPU benchmark) · `backend/` (llama-server process, HTTP
+client, presets file, `InferenceService`) · `catalog/` (downloadable models, suggestions) ·
+`downloads/` (allow-listed, verified downloads) · `ui/` (Qt-free controllers + PySide6 widgets) ·
+`app.py` (composition root) · `selftest.py`. Controllers depend on `typing.Protocol`s and are
+tested with the fakes in `tests/fakes.py`.
 
 Run format, lint, type check and tests before saying any task is done.
 

@@ -2,19 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TypeGuard
-
 from dom.downloads.http import DownloadError
-
-
-def is_object(value: object) -> TypeGuard[dict[str, object]]:
-    """True for a JSON object."""
-    return isinstance(value, dict)
-
-
-def is_array(value: object) -> TypeGuard[list[object]]:
-    """True for a JSON array."""
-    return isinstance(value, list)
+from dom.jsonshape import is_array, is_object
 
 
 def as_object(value: object, what: str) -> dict[str, object]:

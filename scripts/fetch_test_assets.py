@@ -98,9 +98,13 @@ def _already_verified(remote: RemoteFile, dest: Path) -> bool:
     logger.info("Verifying existing %s ...", dest.name)
     if sha256_of(dest) != remote.sha256:
         return False
-    VERIFIED_DIR.mkdir(parents=True, exist_ok=True)
-    marker.write_text(remote.sha256 + "\n", encoding="utf-8")
+    _mark_verified(remote, dest)
     return True
+
+
+def _mark_verified(remote: RemoteFile, dest: Path) -> None:
+    VERIFIED_DIR.mkdir(parents=True, exist_ok=True)
+    (VERIFIED_DIR / (dest.name + ".sha256")).write_text(remote.sha256 + "\n", encoding="utf-8")
 
 
 async def fetch_models() -> None:
@@ -116,7 +120,7 @@ async def fetch_models() -> None:
                 logger.info("%s already present and verified, skipping.", name)
                 continue
             await download_verified(client, remote, dest, _ProgressBar(name))
-            await asyncio.to_thread(_already_verified, remote, dest)
+            _mark_verified(remote, dest)
             logger.info("Downloaded and verified %s", name)
 
 

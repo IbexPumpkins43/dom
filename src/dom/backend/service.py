@@ -18,8 +18,6 @@ from dom.tuning import BenchmarkCache, Machine, Placement, TooLarge, choose_fast
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
-    import httpx
-
     from dom.backend.presets import PresetFile
     from dom.backend.process import LlamaServerProcess
     from dom.config import InferenceSettings
@@ -59,12 +57,10 @@ class LlamaInferenceService:
         self,
         process: LlamaServerProcess,
         tuning: AutoTuning,
-        transport_factory: Callable[[], httpx.AsyncBaseTransport | None] = lambda: None,
     ) -> None:
-        """Wrap ``process``; ``transport_factory`` lets tests swap the HTTP transport."""
+        """Wrap ``process``, tuning models with ``tuning``."""
         self._process = process
         self._tuning = tuning
-        self._transport_factory = transport_factory
         self._client: LlamaClient | None = None
         self._stopping = False
         # First (unpinned) measurement per model: once a model's context is pinned in the
@@ -81,9 +77,7 @@ class LlamaInferenceService:
         self._memories.clear()
         self._plans.clear()
         endpoint = await self._process.start()
-        self._client = LlamaClient(
-            endpoint.base_url, endpoint.api_key, transport=self._transport_factory()
-        )
+        self._client = LlamaClient(endpoint.base_url, endpoint.api_key)
 
     async def stop(self) -> None:
         """Stop the server and all model processes."""
@@ -125,6 +119,13 @@ class LlamaInferenceService:
         models = await self._require_client().list_models()
         self._remember_memories(models)
         ram = await asyncio.to_thread(self._tuning.memory_reader)
+        # Switching unloads the current model first, so its memory counts as free for the others.
+        in_use = sum(
+            plan.required_bytes or 0
+            for model in models
+            if model.status == ModelStatus.LOADED and (plan := self._plans.get(model.id))
+        )
+        ram = dataclasses.replace(ram, available_bytes=ram.available_bytes + in_use)
         return [self._annotate(m, ram) for m in models]
 
     async def select_model(self, model_id: str, on_progress: Progress | None = None) -> LoadedModel:
@@ -139,12 +140,7 @@ class LlamaInferenceService:
         info = await client.unload_others(model_id)
         previous = self._plans.get(model_id)
         if info.status == ModelStatus.LOADED and previous is not None:
-            return LoadedModel(
-                info,
-                previous.ctx_size,
-                self._device_label(previous),
-                previous.required_bytes is not None,
-            )
+            return self._loaded(info, previous)
         memory = await self._wait_for_memory(client, info, progress)
         placement = await self._choose_placement(info, progress)
         ram = await asyncio.to_thread(self._tuning.memory_reader)
@@ -163,9 +159,7 @@ class LlamaInferenceService:
         progress("Loading the model…")
         loaded = await client.load_and_wait(model_id)
         self._plans[model_id] = plan
-        return LoadedModel(
-            loaded, plan.ctx_size, self._device_label(plan), plan.required_bytes is not None
-        )
+        return self._loaded(loaded, plan)
 
     def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]
@@ -182,7 +176,7 @@ class LlamaInferenceService:
 
     def _annotate(self, model: ModelInfo, ram: MemoryStatus) -> ModelInfo:
         memory = self._memories.get(model.id)
-        if memory is None:
+        if memory is None or model.status != ModelStatus.UNLOADED:
             return model
         gpu = self._tuning.hardware.gpu
         placement = Placement.GPU if gpu is not None else Placement.CPU
@@ -233,6 +227,11 @@ class LlamaInferenceService:
         await asyncio.to_thread(cache.put, key, placement, gpu_result, cpu_result)
         logger.info("Placement for %s: %s", info.id, placement)
         return placement
+
+    def _loaded(self, info: ModelInfo, plan: ModelPlan) -> LoadedModel:
+        return LoadedModel(
+            info, plan.ctx_size, self._device_label(plan), plan.required_bytes is not None
+        )
 
     def _device_label(self, plan: ModelPlan) -> str:
         gpu = self._tuning.hardware.gpu

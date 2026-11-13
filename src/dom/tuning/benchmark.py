@@ -9,8 +9,10 @@ import os
 import subprocess
 import threading
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING
 
+from dom.config.binary import run_engine_tool
+from dom.jsonshape import is_array, is_object
 from dom.tuning.tuner import Placement
 
 if TYPE_CHECKING:
@@ -40,25 +42,17 @@ class BenchmarkResult:
         return TYPICAL_PROMPT_TOKENS / self.prompt_tps + TYPICAL_REPLY_TOKENS / self.gen_tps
 
 
-def _is_object(value: object) -> TypeGuard[dict[str, object]]:
-    return isinstance(value, dict)
-
-
-def _is_array(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
-
-
 def parse_bench_output(text: str) -> BenchmarkResult | None:
     """Parse ``llama-bench -o json`` output (one prompt test and one generation test)."""
     try:
         payload: object = json.loads(text)
     except ValueError:
         return None
-    if not _is_array(payload):
+    if not is_array(payload):
         return None
     prompt_tps = gen_tps = 0.0
     for row in payload:
-        if not _is_object(row):
+        if not is_object(row):
             continue
         speed = row.get("avg_ts")
         if not isinstance(speed, int | float) or speed <= 0:
@@ -108,18 +102,9 @@ class LlamaBench:
         ]  # fmt: skip
         if placement == Placement.CPU:
             command += ["-dev", "none"]
-        env = {k: v for k, v in os.environ.items() if not k.upper().startswith("LLAMA_")}
         logger.info("Benchmarking %s on %s", model_path.name, placement)
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=BENCH_TIMEOUT_S,
-                env=env,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            result = run_engine_tool(command, BENCH_TIMEOUT_S)
         except (OSError, subprocess.TimeoutExpired) as exc:
             logger.warning("llama-bench failed for %s on %s: %s", model_path.name, placement, exc)
             return None
@@ -154,7 +139,7 @@ class BenchmarkCache:
     def get(self, key: str) -> Placement | None:
         """The cached decision, if any."""
         entry = self._load().get(key)
-        if _is_object(entry) and isinstance(choice := entry.get("placement"), str):
+        if is_object(entry) and isinstance(choice := entry.get("placement"), str):
             try:
                 return Placement(choice)
             except ValueError:
@@ -189,4 +174,4 @@ class BenchmarkCache:
             payload: object = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        return payload if _is_object(payload) else {}
+        return payload if is_object(payload) else {}

@@ -19,7 +19,7 @@ from dom.backend import (
     ServerUnavailableError,
 )
 from dom.backend.client import parse_models
-from dom.domain import ChatDelta, ChatMessage, ModelStatus, Role
+from dom.domain import ChatDelta, ChatMessage, ModelInfo, ModelStatus, Role
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -118,6 +118,12 @@ def _chunk(content: str | None = None, reasoning: str | None = None) -> str:
     return "data: " + json.dumps(payload)
 
 
+async def _switch(client: LlamaClient, model_id: str, *, poll_interval: float) -> ModelInfo:
+    """Unload the other model, then load ``model_id`` (what the service does around tuning)."""
+    await client.unload_others(model_id, poll_interval=poll_interval)
+    return await client.load_and_wait(model_id, poll_interval=poll_interval)
+
+
 def _client(router: FakeRouter) -> LlamaClient:
     return LlamaClient("http://test", API_KEY, transport=httpx.MockTransport(router.handler))
 
@@ -175,7 +181,7 @@ async def test_list_models(router: FakeRouter) -> None:
 
 async def test_load_polls_until_loaded(router: FakeRouter) -> None:
     client = _client(router)
-    info = await client.switch_model("Qwen-Q4_K_M", poll_interval=0)
+    info = await _switch(client, "Qwen-Q4_K_M", poll_interval=0)
     assert info.status == ModelStatus.LOADED
     assert ("POST", "/models/load", {"model": "Qwen-Q4_K_M"}) in router.requests
     model_polls = [r for r in router.requests if r[1] == "/models"]
@@ -186,7 +192,7 @@ async def test_load_polls_until_loaded(router: FakeRouter) -> None:
 async def test_switch_unloads_the_other_model_first(router: FakeRouter) -> None:
     router.statuses["Qwen-Q4_K_M"] = _status("loaded")
     client = _client(router)
-    await client.switch_model("Qwen-Q8_0", poll_interval=0)
+    await _switch(client, "Qwen-Q8_0", poll_interval=0)
     calls = [(m, p, b) for m, p, b in router.requests if m == "POST"]
     assert calls == [
         ("POST", "/models/unload", {"model": "Qwen-Q4_K_M"}),
@@ -200,7 +206,7 @@ async def test_switch_unloads_the_other_model_first(router: FakeRouter) -> None:
 async def test_switch_to_already_loaded_model_is_a_no_op(router: FakeRouter) -> None:
     router.statuses["Qwen-Q4_K_M"] = _status("loaded")
     client = _client(router)
-    info = await client.switch_model("Qwen-Q4_K_M", poll_interval=0)
+    info = await _switch(client, "Qwen-Q4_K_M", poll_interval=0)
     assert info.status == ModelStatus.LOADED
     assert not [r for r in router.requests if r[0] == "POST"]
     await client.aclose()
@@ -210,7 +216,7 @@ async def test_failed_load_raises_model_load_error(router: FakeRouter) -> None:
     router.fail_load.add("Qwen-Q8_0")
     client = _client(router)
     with pytest.raises(ModelLoadError, match="exit code 1"):
-        await client.switch_model("Qwen-Q8_0", poll_interval=0)
+        await _switch(client, "Qwen-Q8_0", poll_interval=0)
     assert (await client.get_model("Qwen-Q8_0")).status == ModelStatus.FAILED
     await client.aclose()
 
@@ -229,7 +235,7 @@ async def test_load_timeout_raises_model_load_error(router: FakeRouter) -> None:
 async def test_unknown_model_raises_not_found(router: FakeRouter) -> None:
     client = _client(router)
     with pytest.raises(ModelNotFoundError):
-        await client.switch_model("missing", poll_interval=0)
+        await _switch(client, "missing", poll_interval=0)
     with pytest.raises(ModelNotFoundError):
         await client.load_model("missing")
     await client.aclose()
@@ -413,5 +419,5 @@ async def test_load_that_never_starts_raises(router: FakeRouter) -> None:
         start_loading_timeout=0.05,
     )
     with pytest.raises(ModelLoadError, match="never started loading"):
-        await client.switch_model("Qwen-Q4_K_M", poll_interval=0.01)
+        await _switch(client, "Qwen-Q4_K_M", poll_interval=0.01)
     await client.aclose()

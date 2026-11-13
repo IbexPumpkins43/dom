@@ -17,6 +17,7 @@ from typing import IO, TYPE_CHECKING
 
 from dom.backend.client import LlamaClient
 from dom.backend.errors import ServerStartError
+from dom.config.binary import NO_WINDOW, engine_env
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -30,9 +31,6 @@ logger = logging.getLogger(__name__)
 HOST = "127.0.0.1"
 API_KEY_ENV = "LLAMA_API_KEY"
 CACHE_ENV = "LLAMA_CACHE"
-# llama-server reads LLAMA_ARG_* (and other LLAMA_*) variables as settings. Strip any from the
-# user's environment so InferenceSettings is the only source of flags.
-_STRIPPED_ENV_PREFIX = "LLAMA_"
 _START_ATTEMPTS = 3
 _HEALTH_POLL_S = 0.1
 _GRACEFUL_STOP_S = 5.0
@@ -89,8 +87,7 @@ def build_command(binary: Path, models_dir: Path, port: int, presets_path: Path)
 
 def build_env(cache_dir: Path, api_key: str, base: dict[str, str] | None = None) -> dict[str, str]:
     """Child environment: no inherited ``LLAMA_*`` settings, a private cache, and the API key."""
-    source = dict(os.environ) if base is None else base
-    env = {k: v for k, v in source.items() if not k.upper().startswith(_STRIPPED_ENV_PREFIX)}
+    env = engine_env(base)
     env[CACHE_ENV] = str(cache_dir.resolve())
     env[API_KEY_ENV] = api_key
     return env
@@ -191,7 +188,7 @@ class LlamaServerProcess:
                     stdout=self._log_file,
                     stderr=subprocess.STDOUT,
                     env=env,
-                    creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    creationflags=NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
                 )
                 self._job.assign(self._proc.pid)
             else:
