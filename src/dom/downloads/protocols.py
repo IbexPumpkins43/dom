@@ -7,14 +7,15 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from dom.downloads.hub import HubPage
+    from dom.downloads.hub import HubPage, ParamRange
 
 
 class ModelSource(Protocol):
     """Finds models to download (Hugging Face search)."""
 
-    async def search(self, query: str) -> HubPage:
-        """The first page of models matching ``query`` ("" for the most popular)."""
+    async def search(self, query: str, size: ParamRange = (None, None)) -> HubPage:
+        """The first page of models matching ``query`` ("" for the most popular) with ``size``
+        (billions of parameters: at least, at most)."""
         ...
 
     async def page(self, url: str) -> HubPage:
@@ -25,8 +26,8 @@ class ModelSource(Protocol):
 class ModelDownloads(Protocol):
     """The models folder: downloads into it and deletions from it."""
 
-    async def installed_files(self) -> set[str]:
-        """Names of the model files already present."""
+    async def installed_files(self) -> dict[str, int]:
+        """The model files already present: name -> size in bytes."""
         ...
 
     async def sources(self) -> dict[str, str]:

@@ -58,13 +58,17 @@ class ModelLibrary:
         """Where model files live."""
         return self._models_dir
 
-    async def installed_files(self) -> set[str]:
-        """Names of the ``.gguf`` files in the models folder."""
+    async def installed_files(self) -> dict[str, int]:
+        """The ``.gguf`` files in the models folder: name -> size in bytes."""
 
-        def scan() -> set[str]:
+        def scan() -> dict[str, int]:
             if not self._models_dir.is_dir():
-                return set()
-            return {p.name for p in self._models_dir.iterdir() if p.suffix == ".gguf"}
+                return {}
+            return {
+                p.name: p.stat().st_size
+                for p in self._models_dir.iterdir()
+                if p.suffix == ".gguf" and p.is_file()
+            }
 
         return await asyncio.to_thread(scan)
 

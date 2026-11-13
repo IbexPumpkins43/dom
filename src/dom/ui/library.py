@@ -10,11 +10,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
-from dom.catalog import CatalogQuant, quant_label, suggest, to_catalog
+from dom.catalog import CatalogQuant, suggest, to_catalog
+from dom.catalog.quants import local_catalog
 from dom.catalog.recommend import (
     MIN_COMFORTABLE_TPS,
     estimate_tokens_per_s,
@@ -27,12 +28,64 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
     from dom.catalog import CatalogModel, HubModel
+    from dom.downloads.hub import ParamRange
     from dom.downloads.protocols import ModelDownloads, ModelSource
     from dom.hardware import HardwareProfile
 
 logger = logging.getLogger(__name__)
 
 LOCAL_PREFIX = "local:"  # card keys of downloaded files that are not in the search results
+
+
+HF_MODEL_PAGE = "https://huggingface.co/"
+
+
+class SizeRange(StrEnum):
+    """The parameter-count filter."""
+
+    ANY = "any"
+    TINY = "tiny"
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    VERY_LARGE = "very_large"
+    HUGE = "huge"
+
+
+# Billions of parameters: (at least, at most).
+SIZE_RANGES: dict[SizeRange, ParamRange] = {
+    SizeRange.ANY: (None, None),
+    SizeRange.TINY: (None, 2),
+    SizeRange.SMALL: (2, 5),
+    SizeRange.MEDIUM: (5, 10),
+    SizeRange.LARGE: (10, 20),
+    SizeRange.VERY_LARGE: (20, 40),
+    SizeRange.HUGE: (40, None),
+}
+# Quantisations offered as a filter, best quality first.
+QUANT_FILTERS: tuple[str, ...] = (
+    "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "IQ4_XS", "Q3_K_M", "Q2_K",
+)  # fmt: skip
+
+
+@dataclass(frozen=True, slots=True)
+class Filters:
+    """Which models the screen shows, besides the search text."""
+
+    size: SizeRange = SizeRange.ANY
+    quant: str | None = None  # only models offering this version (which is then preselected)
+    fits_only: bool = False  # hide models too large for this computer
+
+
+def label_matches(label: str, wanted: str) -> bool:
+    """True if version ``label`` is the ``wanted`` quantisation (unsloth "UD-" files count)."""
+    return label.removeprefix("UD-") == wanted
+
+
+def in_range(params_b: float, size: ParamRange) -> bool:
+    """True if ``params_b`` billions is within ``size`` (inclusive)."""
+    low, high = size
+    return (low is None or params_b >= low) and (high is None or params_b <= high)
 
 
 class Fit(StrEnum):
@@ -76,6 +129,7 @@ class ModelCard:
     est_tokens_per_s: float | None
     downloading: bool
     partial_bytes: int
+    url: str | None = None  # the model's page on Hugging Face
 
     def version(self, path: str | None) -> Version | None:
         """The version with this path."""
@@ -141,6 +195,7 @@ class LibraryController:
         self._loaded = False
         self._error: str | None = None
         self._search_task: asyncio.Task[None] | None = None
+        self._filters = Filters()
         self._choices: dict[str, str] = {}  # card key -> path picked in the version list
         self._active: dict[str, _Download] = {}
         self._cards: list[ModelCard] = []
@@ -160,6 +215,21 @@ class LibraryController:
         return download is not None and not download.task.done()
 
     # ---- searching -----------------------------------------------------------------------
+
+    @property
+    def filters(self) -> Filters:
+        """The filters in use."""
+        return self._filters
+
+    async def set_filters(self, filters: Filters) -> None:
+        """Use ``filters`` (searching again only if the size range changed: Hugging Face filters
+        by size; the rest is applied to the results already here)."""
+        size_changed = filters.size != self._filters.size
+        self._filters = filters
+        if size_changed:
+            await self.search(self._query)
+        else:
+            await self.refresh()
 
     async def open(self) -> None:
         """The screen was opened: list the most popular models the first time, else redraw."""
@@ -199,7 +269,7 @@ class LibraryController:
     async def _fetch(self, page_url: str | None) -> None:
         try:
             if page_url is None:
-                page = await self._source.search(self._query)
+                page = await self._source.search(self._query, SIZE_RANGES[self._filters.size])
             else:
                 page = await self._source.page(page_url)
         except DownloadError as exc:
@@ -294,15 +364,19 @@ class LibraryController:
         for model in self._results:
             card = await self._hub_card(model, hardware, installed)
             if card is not None:
-                cards.append(card)
                 shown_files.update(v.filename for v in card.versions)
+                cards.append(card)
         local = [
-            self._local_card(name, sources.get(name))
-            for name in sorted(installed - shown_files)
-            if self._matches(name, sources.get(name))
+            self._local_card(name, size, sources.get(name), hardware)
+            for name, size in sorted(installed.items())
+            if name not in shown_files and self._matches(name, sources.get(name))
         ]
         # Downloaded models first, so they are easy to find (and delete).
-        cards = local + sorted(cards, key=lambda c: c.installed is None)
+        cards = [
+            card
+            for card in local + sorted(cards, key=lambda c: c.installed is None)
+            if self._passes(card)
+        ]
         self._cards = cards
         if self._view is not None:
             state = ScreenState(
@@ -319,12 +393,34 @@ class LibraryController:
         text = f"{filename} {repo or ''}".lower()
         return all(word in text for word in words)
 
+    def _passes(self, card: ModelCard) -> bool:
+        """The filters, checked on a finished card."""
+        filters = self._filters
+        size = SIZE_RANGES[filters.size]
+        if card.params_b is not None and not in_range(card.params_b, size):
+            return False  # Hugging Face's size filter is approximate; the model's own count wins
+        if card.params_b is None and filters.size != SizeRange.ANY:
+            return False
+        if filters.quant is not None and not any(
+            label_matches(v.label, filters.quant) for v in card.versions
+        ):
+            return False
+        return not (filters.fits_only and card.fit == Fit.TOO_LARGE)
+
     async def _hub_card(
-        self, model: HubModel, hardware: HardwareProfile, installed: set[str]
+        self, model: HubModel, hardware: HardwareProfile, installed: dict[str, int]
     ) -> ModelCard | None:
         catalog = to_catalog(model)
         if catalog is None:
             return None
+        # A downloaded version's real size replaces the estimate.
+        catalog = replace(
+            catalog,
+            quants=tuple(
+                replace(q, size_bytes=installed[q.local_name]) if q.local_name in installed else q
+                for q in catalog.quants
+            ),
+        )
         [suggestion] = suggest([catalog], hardware, installed)
         budget = memory_for_models(hardware)
         versions = tuple(
@@ -335,13 +431,17 @@ class LibraryController:
         )
         installed_version = next((v for v in versions if v.filename in installed), None)
         download = self._active.get(model.repo)
+        wanted = self._filters.quant
+        filtered = next(
+            (q for q in catalog.quants if wanted and label_matches(q.label, wanted)), None
+        )
         selected = (
             installed_version.path
             if installed_version is not None
             else download.path
             if download is not None
             else self._choices.get(model.repo)
-            or (suggestion.quant or catalog.quants[0]).filename  # too large: the usual pick
+            or (filtered or suggestion.quant or catalog.quants[0]).filename
         )
         chosen = next((v for v in versions if v.path == selected), None)
         partial = 0
@@ -367,6 +467,7 @@ class LibraryController:
             est_tokens_per_s=speed,
             downloading=self.is_downloading(model.repo),
             partial_bytes=partial,
+            url=HF_MODEL_PAGE + model.repo,
         )
 
     @staticmethod
@@ -381,23 +482,26 @@ class LibraryController:
             fit = Fit.GOOD
         return Version(quant.filename, quant.label, quant.size_bytes, fit)
 
-    @staticmethod
-    def _local_card(filename: str, repo: str | None) -> ModelCard:
-        label = quant_label(filename) or "GGUF"
-        version = Version(filename, label, 0, Fit.UNKNOWN)
-        title = filename.removesuffix(".gguf")
+    def _local_card(
+        self, filename: str, size: int, repo: str | None, hardware: HardwareProfile
+    ) -> ModelCard:
+        """A downloaded file the search did not list, judged from its real size."""
+        catalog = local_catalog(filename, size)
+        [quant] = catalog.quants
+        version = self._version(catalog, quant, hardware, memory_for_models(hardware))
         return ModelCard(
             key=LOCAL_PREFIX + filename,
-            title=title,
+            title=catalog.name,
             author=repo.split("/", 1)[0] if repo else None,
-            params_b=None,
+            params_b=catalog.params_b or None,
             downloads=None,
             likes=None,
             versions=(version,),
             selected=filename,
             installed=filename,
-            fit=Fit.UNKNOWN,
-            est_tokens_per_s=None,
+            fit=version.fit,
+            est_tokens_per_s=estimate_tokens_per_s(catalog, quant, hardware),
             downloading=False,
             partial_bytes=0,
+            url=HF_MODEL_PAGE + repo if repo else None,
         )

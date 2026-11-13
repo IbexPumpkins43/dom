@@ -72,7 +72,9 @@ def estimate_tokens_per_s(model: CatalogModel, quant: CatalogQuant, hw: Hardware
     gpu = hw.gpu
     on_gpu = gpu is not None and not gpu.integrated and needed_bytes(quant) <= gpu.total_bytes
     bandwidth = GPU_BANDWIDTH if on_gpu else CPU_BANDWIDTH
-    bytes_per_token = quant.size_bytes * model.active_params_b / model.params_b
+    # Unknown parameter counts (a file whose name does not say): assume every weight is used.
+    active_share = model.active_params_b / model.params_b if model.params_b > 0 else 1.0
+    bytes_per_token = max(1.0, quant.size_bytes * active_share)
     return bandwidth / bytes_per_token
 
 

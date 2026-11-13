@@ -57,6 +57,7 @@ _LABEL = re.compile(
     re.IGNORECASE,
 )
 _ACTIVE = re.compile(r"(?:^|[-_.])A(\d+(?:\.\d+)?)B(?:$|[-_.])", re.IGNORECASE)
+_SIZE = re.compile(r"(?:^|[-_.])(\d+(?:\.\d+)?)([BM])(?=$|[-_.])", re.IGNORECASE)
 _SPLIT_PART = re.compile(r"-\d{5}-of-\d{5}\.gguf$", re.IGNORECASE)
 _NOT_A_MODEL = ("mmproj", "imatrix")  # vision projectors and quantisation data, not chat models
 
@@ -119,6 +120,33 @@ def _rank(label: str, params: int) -> tuple[int, bool, str]:
     else:
         index = len(order)
     return (index, label.startswith("UD-"), label)
+
+
+def params_from_name(name: str) -> float | None:
+    """Billions of parameters stated in a model or file name ("Qwen3.5-0.8B…", "SmolLM2-135M…";
+    for "35B-A3B" the total, 35)."""
+    match = _SIZE.search(name)  # "A3B" never matches: it does not start with a digit
+    if match is None:
+        return None
+    value = float(match.group(1))
+    return value / 1000 if match.group(2).upper() == "M" else value
+
+
+def local_catalog(filename: str, size_bytes: int) -> CatalogModel:
+    """A downloaded file as a catalog model with its real size, so its speed can be estimated
+    even when Hugging Face's search does not list it (parameters come from its name)."""
+    label = quant_label(filename) or "GGUF"
+    stem = filename.removesuffix(".gguf")
+    params_b = params_from_name(stem) or 0.0
+    return CatalogModel(
+        key=filename,
+        name=stem,
+        maker="",
+        repo="",
+        params_b=params_b,
+        active_params_b=active_params_b(stem, params_b) if params_b else 0.0,
+        quants=(CatalogQuant(label, filename, size_bytes),),
+    )
 
 
 def active_params_b(name: str, params_b: float) -> float:

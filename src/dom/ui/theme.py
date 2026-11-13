@@ -381,6 +381,30 @@ QDialog, #dialogContent {{ background: {t.base00}; }}
     border: 1px solid {t.base03};
 }}
 #modelCardProgress {{ font-size: 11px; }}
+#filterBox {{
+    background: {t.base01};
+    color: {t.base05};
+    border: 1px solid {t.base02};
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+}}
+#filterBox:hover {{ border-color: {t.base03}; }}
+#filterBox QAbstractItemView {{
+    background: {t.base01};
+    color: {t.base05};
+    selection-background-color: {t.base02};
+    border: 1px solid {t.base03};
+}}
+#filterCheck {{ color: {t.base05}; font-size: 12px; spacing: 6px; }}
+#filterCheck::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t.base03};
+    border-radius: 3px;
+    background: {t.base01};
+}}
+#filterCheck::indicator:checked {{ background: {t.base09}; border-color: {t.base09}; }}
 #badge {{
     background: {t.base09};
     color: {t.base00};

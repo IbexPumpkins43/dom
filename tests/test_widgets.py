@@ -37,9 +37,15 @@ from dom.hardware.probe import read_usage
 from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.icons import Icon, icon_svg, make_icon
-from dom.ui.library import Fit, ModelCard, ScreenState, Version
+from dom.ui.library import Filters, Fit, ModelCard, ScreenState, SizeRange, Version
 from dom.ui.main_window import MainWindow
-from dom.ui.models_screen import ModelsScreen, facts_text, fit_text
+from dom.ui.models_screen import (
+    ModelCardWidget,
+    ModelsScreen,
+    author_html,
+    facts_text,
+    fit_text,
+)
 from dom.ui.profile_widgets import (
     BUTTON_NAME_MAX_CHARS,
     ProfileButton,
@@ -588,3 +594,30 @@ def test_fit_text_is_short_and_plain() -> None:
     assert fit_text(card) == "Runs well · about 9 words/s"
     assert fit_text(replace(card, fit=Fit.SLOW, est_tokens_per_s=2.0)) == "Slow · about 2 words/s"
     assert fit_text(replace(card, fit=Fit.TOO_LARGE)) == "Too large for this computer"
+
+
+def test_models_screen_filters(qt_app: QApplication) -> None:
+    screen = ModelsScreen()
+    seen: list[object] = []
+    screen.filters_changed.connect(seen.append)
+    assert screen.filters() == Filters()
+    screen.size_filter.setCurrentIndex(2)
+    screen.size_filter.activated.emit(2)
+    screen.quant_filter.setCurrentIndex(screen.quant_filter.findText("Q4_K_M"))
+    screen.quant_filter.activated.emit(screen.quant_filter.currentIndex())
+    screen.fits_filter.setChecked(True)
+    assert seen[-1] == Filters(size=SizeRange.SMALL, quant="Q4_K_M", fits_only=True)
+    assert len(seen) == 3  # noqa: PLR2004
+    assert qt_app is not None
+
+
+def test_cards_link_to_the_model_page(qt_app: QApplication) -> None:
+    linked = replace(_card("org/A"), url="https://huggingface.co/org/A")
+    assert author_html(linked) == (
+        'by org · <a href="https://huggingface.co/org/A">View on Hugging Face</a>'
+    )
+    assert author_html(replace(linked, author=None, url=None)) == "Your file"
+    widget = ModelCardWidget(linked)
+    assert widget.author.openExternalLinks()
+    assert widget.author.toolTip() == "https://huggingface.co/org/A"
+    assert qt_app is not None

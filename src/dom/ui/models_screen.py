@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import html
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QGridLayout,
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dom.ui.library import Fit
+from dom.ui.library import QUANT_FILTERS, Filters, Fit, SizeRange
 from dom.ui.widgets import ElidedLabel
 
 if TYPE_CHECKING:
@@ -35,6 +37,16 @@ GRID_SPACING = 12
 SEARCH_DELAY_MS = 500  # search after typing pauses this long (or straight away on Enter)
 WORDS_PER_TOKEN = 0.75
 PROGRESS_STEPS = 1000
+
+SIZE_LABELS: dict[SizeRange, str] = {
+    SizeRange.ANY: "Any size",
+    SizeRange.TINY: "Up to 2B parameters",
+    SizeRange.SMALL: "2B to 5B parameters",
+    SizeRange.MEDIUM: "5B to 10B parameters",
+    SizeRange.LARGE: "10B to 20B parameters",
+    SizeRange.VERY_LARGE: "20B to 40B parameters",
+    SizeRange.HUGE: "Over 40B parameters",
+}
 
 _FIT_TEXT: dict[Fit, str] = {
     Fit.GOOD: "Runs well on this computer",
@@ -75,6 +87,14 @@ def fit_text(card: ModelCard) -> str:
         words = max(1, round(card.est_tokens_per_s * WORDS_PER_TOKEN))
         text = text.removesuffix(" on this computer") + f" · about {words} words/s"
     return text
+
+
+def author_html(card: ModelCard) -> str:
+    """ "by unsloth · View on Hugging Face" (a link), or "Your file" for unknown files."""
+    who = f"by {html.escape(card.author)}" if card.author else "Your file"
+    if not card.url:
+        return who
+    return f'{who} · <a href="{html.escape(card.url, quote=True)}">View on Hugging Face</a>'
 
 
 def version_text(version: Version) -> str:
@@ -145,9 +165,13 @@ class ModelCardWidget(QFrame):
             badge.setProperty("kind", "installed")
             heading.addWidget(badge)
         layout.addLayout(heading)
-        author = QLabel(f"by {card.author}" if card.author else "Your file")
-        author.setObjectName("modelCardAuthor")
-        layout.addWidget(author)
+        self.author = QLabel(author_html(card))
+        self.author.setObjectName("modelCardAuthor")
+        self.author.setTextFormat(Qt.TextFormat.RichText)
+        self.author.setOpenExternalLinks(True)  # opens the page in the web browser
+        if card.url:
+            self.author.setToolTip(card.url)
+        layout.addWidget(self.author)
         facts = ElidedLabel(facts_text(card))
         facts.setObjectName("modelCardFacts")
         layout.addWidget(facts)
@@ -215,6 +239,7 @@ class ModelsScreen(QWidget):
     delete_requested = Signal(str, str)  # file name, title
     version_chosen = Signal(str, str)
     back_requested = Signal()
+    filters_changed = Signal(object)  # Filters
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create the (empty) screen."""
@@ -274,10 +299,56 @@ class ModelsScreen(QWidget):
         self.search.textEdited.connect(self._typed)
         self.search.returnPressed.connect(self._emit_search)
         outer.addWidget(self.search)
+        outer.addLayout(self._build_filters())
         self.status = QLabel()
         self.status.setObjectName("screenStatus")
         self.status.setWordWrap(True)
         outer.addWidget(self.status)
+
+    def _build_filters(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.size_filter = QComboBox()
+        self.size_filter.setObjectName("filterBox")
+        self.size_filter.setToolTip("Model size: bigger models answer better but need more memory")
+        for size, label in SIZE_LABELS.items():
+            self.size_filter.addItem(label, size.value)
+        self.quant_filter = QComboBox()
+        self.quant_filter.setObjectName("filterBox")
+        self.quant_filter.setToolTip(
+            "Only models offering this version (quantisation). Q8_0 is closest to the original; "
+            "lower numbers are smaller and faster but less accurate."
+        )
+        self.quant_filter.addItem("Any version", "")
+        for quant in QUANT_FILTERS:
+            self.quant_filter.addItem(quant, quant)
+        self.fits_filter = QCheckBox("Only models that fit this computer")
+        self.fits_filter.setObjectName("filterCheck")
+        for box in (self.size_filter, self.quant_filter):
+            box.activated.connect(self._filter_picked)
+        self.fits_filter.toggled.connect(self._filter_toggled)
+        row.addWidget(self.size_filter)
+        row.addWidget(self.quant_filter)
+        row.addSpacing(6)
+        row.addWidget(self.fits_filter)
+        row.addStretch(1)
+        return row
+
+    def filters(self) -> Filters:
+        """The filters as set on screen."""
+        size: object = self.size_filter.currentData()
+        quant: object = self.quant_filter.currentData()
+        return Filters(
+            size=SizeRange(size) if isinstance(size, str) else SizeRange.ANY,
+            quant=quant if isinstance(quant, str) and quant else None,
+            fits_only=self.fits_filter.isChecked(),
+        )
+
+    def _filter_picked(self, _index: int) -> None:
+        self.filters_changed.emit(self.filters())
+
+    def _filter_toggled(self, _checked: bool) -> None:
+        self.filters_changed.emit(self.filters())
 
     def _typed(self, _text: str) -> None:
         self._search_timer.start()
@@ -322,6 +393,8 @@ class ModelsScreen(QWidget):
             return state.error
         if not cards and state.query:
             return f"No chat models found for “{state.query}”."
+        if not cards:
+            return "No models match these filters."
         return ""
 
     def show_download_progress(self, key: str, done: int, total: int) -> None:

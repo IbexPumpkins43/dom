@@ -12,7 +12,12 @@ import httpx
 import pytest
 
 from dom.catalog import HubModel, quant_label, suggest, to_catalog
-from dom.catalog.quants import estimated_size, is_single_model_file
+from dom.catalog.quants import (
+    estimated_size,
+    is_single_model_file,
+    local_catalog,
+    params_from_name,
+)
 from dom.catalog.recommend import memory_for_models
 from dom.downloads import DownloadError
 from dom.downloads.http import make_client
@@ -20,7 +25,15 @@ from dom.downloads.hub import HubSearch, parse_model, parse_page, search_url
 from dom.downloads.library import SOURCES_FILE, ModelLibrary
 from dom.hardware import GpuDevice, HardwareProfile
 from dom.hardware.models import GIB
-from dom.ui.library import LOCAL_PREFIX, Fit, LibraryController, ModelCard, ScreenState
+from dom.ui.library import (
+    LOCAL_PREFIX,
+    Filters,
+    Fit,
+    LibraryController,
+    ModelCard,
+    ScreenState,
+    SizeRange,
+)
 from tests.fakes import TEST_HARDWARE, FakeDownloads, FakeSource
 
 if TYPE_CHECKING:
@@ -156,6 +169,7 @@ def test_parse_model_keeps_single_file_chat_models() -> None:
     assert model.params == 4_000_000_000  # noqa: PLR2004
     assert model.name == "M"
     assert model.author == "org"
+    assert parse_model(_entry("org/M-GGUF", pipeline_tag="image-text-to-text")) is not None
 
 
 @pytest.mark.parametrize(
@@ -165,6 +179,8 @@ def test_parse_model_keeps_single_file_chat_models() -> None:
         {"gguf": {"total": 1}},  # no chat template: not a chat model
         {"siblings": [{"rfilename": "M-00001-of-00003.gguf"}]},
         {"gguf": None},
+        {"pipeline_tag": "automatic-speech-recognition"},
+        {"pipeline_tag": "text-to-speech"},
     ],
 )
 def test_parse_model_skips_what_dom_cannot_offer(overrides: dict[str, object]) -> None:
@@ -243,11 +259,11 @@ async def test_download_from_a_folder_saves_by_name_and_remembers_the_repo(
     library = ModelLibrary(tmp_path, lambda: _client(httpx.MockTransport(_hub_files)))
     await library.download("org/M-GGUF", "Q4_K_M/M-Q4_K_M.gguf", lambda _d, _t: None)
     assert (tmp_path / "M-Q4_K_M.gguf").read_bytes() == CONTENT
-    assert await library.installed_files() == {"M-Q4_K_M.gguf"}
+    assert await library.installed_files() == {"M-Q4_K_M.gguf": len(CONTENT)}
     assert await library.sources() == {"M-Q4_K_M.gguf": "org/M-GGUF"}
 
     await library.delete("M-Q4_K_M.gguf")
-    assert await library.installed_files() == set()
+    assert await library.installed_files() == {}
     assert json.loads((tmp_path / SOURCES_FILE).read_text(encoding="utf-8")) == {}
 
 
@@ -444,3 +460,84 @@ async def test_too_large_cards_show_the_usual_version(screen: Screen) -> None:
     huge = screen.view.card(HUGE.repo)
     assert huge.selected == "Huge-200B-Q4_K_M.gguf"
     assert huge.fit == Fit.TOO_LARGE
+
+
+# ---- filters, links and downloaded models --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "params"),
+    [
+        ("Qwen3.5-0.8B-Q4_K_M", 0.8),
+        ("SmolLM2-135M-Instruct-Q8_0", 0.135),
+        ("Qwen3.6-35B-A3B-UD-Q4_K_XL", 35.0),
+        ("Mystery-Q4_K_M", None),
+    ],
+)
+def test_params_from_name(name: str, params: float | None) -> None:
+    assert params_from_name(name) == params
+
+
+def test_search_url_asks_hugging_face_for_a_size() -> None:
+    assert "num_parameters=min%3A2B%2Cmax%3A5B" in search_url("", (2, 5))
+    assert "num_parameters=min%3A40B&" in search_url("", (40, None))
+    assert "num_parameters" not in search_url("", (None, None))
+
+
+async def test_size_filter_searches_again_and_rechecks_parameters(screen: Screen) -> None:
+    await screen.controller.open()
+    await screen.controller.set_filters(Filters(size=SizeRange.SMALL))  # 2B to 5B
+    assert screen.source.sizes[-1] == (2, 5)
+    assert screen.view.cards == []  # the fake ignores the size: dom's own check removes them
+    await screen.controller.set_filters(Filters(size=SizeRange.MEDIUM))  # 5B to 10B
+    assert [c.key for c in screen.view.cards] == [MEDIUM.repo]
+
+
+async def test_quant_filter_keeps_models_offering_it_and_picks_it(screen: Screen) -> None:
+    await screen.controller.open()
+    queries = len(screen.source.queries)
+    await screen.controller.set_filters(Filters(quant="Q6_K"))
+    assert len(screen.source.queries) == queries  # no new search: filtered here
+    [card] = screen.view.cards
+    assert card.key == MEDIUM.repo
+    assert card.selected == "Medium-8B-Q6_K.gguf"
+
+
+async def test_fits_filter_hides_models_that_are_too_large(screen: Screen) -> None:
+    await screen.controller.open()
+    await screen.controller.set_filters(Filters(fits_only=True))
+    assert HUGE.repo not in [c.key for c in screen.view.cards]
+    assert SMALL.repo in [c.key for c in screen.view.cards]
+
+
+async def test_cards_link_to_hugging_face(screen: Screen) -> None:
+    screen.downloads.files = {"Mine-3B-Q4_K_M.gguf", "Unknown-Q4_K_M.gguf"}
+    screen.downloads.origin = {"Mine-3B-Q4_K_M.gguf": "someone/Mine-3B-GGUF"}
+    await screen.controller.open()
+    assert screen.view.card(SMALL.repo).url == "https://huggingface.co/org/Small-1B-GGUF"
+    mine = screen.view.card(LOCAL_PREFIX + "Mine-3B-Q4_K_M.gguf")
+    assert mine.url == "https://huggingface.co/someone/Mine-3B-GGUF"
+    assert screen.view.card(LOCAL_PREFIX + "Unknown-Q4_K_M.gguf").url is None
+
+
+async def test_downloaded_models_get_a_performance_prediction(screen: Screen) -> None:
+    screen.downloads.files = {"Mine-3B-Q4_K_M.gguf", "Small-1B-Q8_0.gguf"}
+    screen.downloads.sizes = {"Mine-3B-Q4_K_M.gguf": 2 * GIB, "Small-1B-Q8_0.gguf": 999_000_000}
+    await screen.controller.open()
+    mine = screen.view.card(LOCAL_PREFIX + "Mine-3B-Q4_K_M.gguf")
+    assert mine.fit == Fit.GOOD
+    assert mine.params_b == 3.0  # noqa: PLR2004 -- read from the name
+    assert mine.est_tokens_per_s is not None
+    assert 10 < mine.est_tokens_per_s < 20  # noqa: PLR2004 -- 30 GB/s over ~2.1 GB
+    small = screen.view.card(SMALL.repo)
+    version = small.version(small.selected)
+    assert version is not None
+    assert version.size_bytes == 999_000_000  # the real size, not the estimate  # noqa: PLR2004
+    assert small.est_tokens_per_s is not None
+
+
+def test_unknown_parameter_counts_do_not_break_estimates() -> None:
+    model = local_catalog("Mystery-Q4_K_M.gguf", 4 * GIB)
+    assert model.params_b == 0
+    [item] = suggest([model], _hw(16), {"Mystery-Q4_K_M.gguf"})
+    assert item.est_tokens_per_s is not None

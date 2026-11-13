@@ -2,8 +2,8 @@
 
 Uses the public, anonymous ``/api/models`` search: GGUF repositories sorted by downloads, with
 the model's GGUF metadata (parameter count, chat template) and file names. Only models that can
-chat (they have a chat template), are not gated behind a licence click-through, and have at
-least one single-file GGUF are kept.
+chat (a chat template, and a chat task tag or none), are not gated behind a licence
+click-through, and have at least one single-file GGUF are kept.
 """
 
 from __future__ import annotations
@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 HF_API = "https://huggingface.co/api/models"
 PAGE_SIZE = 40
-_EXPAND = ("gguf", "downloads", "likes", "gated", "siblings")
+_EXPAND = ("gguf", "downloads", "likes", "gated", "siblings", "pipeline_tag")
+# Hugging Face task tags of models dom can chat with. Untagged repos are kept (many GGUF
+# conversions have no tag); speech, audio, image-generation and embedding models are not.
+CHAT_TASKS = frozenset({"text-generation", "image-text-to-text", "text2text-generation"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,8 +41,17 @@ class HubPage:
     next_url: str | None
 
 
-def search_url(query: str, limit: int = PAGE_SIZE) -> str:
-    """The search request for ``query`` ("" lists the most downloaded GGUF models)."""
+type ParamRange = tuple[float | None, float | None]  # billions of parameters: (at least, at most)
+ANY_SIZE: ParamRange = (None, None)
+
+
+def _billions(value: float) -> str:
+    return f"{value:g}B"
+
+
+def search_url(query: str, size: ParamRange = ANY_SIZE, limit: int = PAGE_SIZE) -> str:
+    """The search request for ``query`` ("" lists the most downloaded GGUF models), limited to
+    models with ``size`` parameters (Hugging Face's own filter; it is approximate)."""
     params: list[tuple[str, str]] = [
         ("filter", "gguf"),
         ("sort", "downloads"),
@@ -48,6 +60,10 @@ def search_url(query: str, limit: int = PAGE_SIZE) -> str:
     ]
     if query.strip():
         params.append(("search", query.strip()))
+    low, high = size
+    if low is not None or high is not None:
+        bounds = [f"min:{_billions(low or 0)}"] + ([f"max:{_billions(high)}"] if high else [])
+        params.append(("num_parameters", ",".join(bounds)))
     params += [("expand[]", field) for field in _EXPAND]
     return f"{HF_API}?{urlencode(params)}"
 
@@ -67,6 +83,9 @@ def parse_model(entry: object) -> HubModel | None:
         return None
     if entry.get("gated") not in (False, None) or not gguf.get("chat_template"):
         return None  # gated (needs a Hugging Face login) or not a chat model
+    task = entry.get("pipeline_tag")
+    if task is not None and task not in CHAT_TASKS:
+        return None  # e.g. speech recognition: has a chat template, but does not chat
     files = tuple(
         name
         for sibling in siblings
@@ -114,9 +133,9 @@ class HubSearch:
         """``client_factory`` lets tests fake the network."""
         self._client_factory = client_factory
 
-    async def search(self, query: str) -> HubPage:
-        """The first page of models matching ``query``."""
-        return await self.page(search_url(query))
+    async def search(self, query: str, size: ParamRange = ANY_SIZE) -> HubPage:
+        """The first page of models matching ``query`` with ``size`` parameters."""
+        return await self.page(search_url(query, size))
 
     async def page(self, url: str) -> HubPage:
         """The page of results at ``url`` (a search URL or a page's ``next_url``).

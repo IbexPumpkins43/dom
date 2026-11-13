@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from dom.ui.controller import spawn
 from dom.ui.dialogs import Question, ask
 from dom.ui.icons import ICON_SIZE, Icon, make_icon
+from dom.ui.library import Filters
 from dom.ui.models_screen import ModelsScreen
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog
 from dom.ui.protocols import ServerState
@@ -478,6 +479,7 @@ class MainWindow(QMainWindow):
         screen.download_requested.connect(self._download_model)
         screen.cancel_requested.connect(self._cancel_download)
         screen.version_chosen.connect(self._choose_version)
+        screen.filters_changed.connect(self._set_filters)
         screen.delete_requested.connect(self._confirm_delete_model)
 
     def _search_models(self, text: str) -> None:
@@ -491,6 +493,10 @@ class MainWindow(QMainWindow):
     def _cancel_download(self, key: str) -> None:
         if self._library is not None:
             self._run(self._library.cancel(key))
+
+    def _set_filters(self, filters: object) -> None:
+        if self._library is not None and isinstance(filters, Filters):
+            self._run(self._library.set_filters(filters))
 
     def _choose_version(self, key: str, path: str) -> None:
         if self._library is not None:

@@ -14,7 +14,7 @@ from dom.backend.errors import (
 )
 from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo, ModelStatus
 from dom.downloads import DownloadError
-from dom.downloads.hub import HubPage
+from dom.downloads.hub import HubPage, ParamRange
 from dom.hardware import HardwareProfile, MemoryStatus
 from dom.hardware.models import GIB
 
@@ -173,6 +173,7 @@ class FakeDownloads:
     """A ``ModelDownloads`` over an in-memory folder."""
 
     files: set[str] = field(default_factory=set[str])
+    sizes: dict[str, int] = field(default_factory=dict[str, int])
     partial: dict[str, int] = field(default_factory=dict[str, int])
     origin: dict[str, str] = field(default_factory=dict[str, str])
     error: str | None = None
@@ -181,8 +182,8 @@ class FakeDownloads:
     downloaded: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     deleted: list[str] = field(default_factory=list[str])
 
-    async def installed_files(self) -> set[str]:
-        return set(self.files)
+    async def installed_files(self) -> dict[str, int]:
+        return {name: self.sizes.get(name, GIB) for name in self.files}
 
     async def sources(self) -> dict[str, str]:
         return dict(self.origin)
@@ -218,9 +219,11 @@ class FakeSource:
     more: list[HubModel] = field(default_factory=list["HubModel"])
     error: str | None = None
     queries: list[str] = field(default_factory=list[str])
+    sizes: list[ParamRange] = field(default_factory=list["ParamRange"])
 
-    async def search(self, query: str) -> HubPage:
+    async def search(self, query: str, size: ParamRange = (None, None)) -> HubPage:
         self.queries.append(query)
+        self.sizes.append(size)
         await asyncio.sleep(0)
         if self.error is not None:
             raise DownloadError(self.error)
