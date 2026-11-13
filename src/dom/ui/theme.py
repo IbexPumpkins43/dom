@@ -182,7 +182,7 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #cpuBar[high="true"]::chunk, #memoryBar[high="true"]::chunk {{ background: {t.base08}; }}
 #titleBar {{ background: {t.base01}; border-bottom: 1px solid {t.base02}; }}
 #titleBarName {{ color: {t.base09}; font-weight: 700; font-size: 13px; letter-spacing: 1px; }}
-#titleBarTitle {{ color: {t.base04}; font-size: 14px; }}
+#titleBarTitle {{ color: {t.base04}; font-size: 16px; }}
 #profileButton {{
     background: transparent;
     color: {t.base06};
