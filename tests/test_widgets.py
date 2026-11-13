@@ -7,11 +7,13 @@ from datetime import UTC, datetime
 
 import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QFontDatabase, QPalette, QStandardItemModel
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontInfo, QPalette, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
+    QLabel,
     QListWidget,
+    QMenu,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -32,11 +34,18 @@ from dom.domain import (
 from dom.hardware import MemoryStatus, SystemUsage
 from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
-from dom.ui.assets import UI_FONT_FAMILY, load_fonts, logo_svg, render_logo
+from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.main_window import MainWindow
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog, avatar_pixmap
-from dom.ui.theme import BRASA, apply_theme, profile_colour, theme_for, tinted
+from dom.ui.theme import (
+    BRASA,
+    UI_FONT_FAMILY,
+    apply_theme,
+    profile_colour,
+    theme_for,
+    tinted,
+)
 from dom.ui.titlebar import TitleBar, edges_at
 from dom.ui.widgets import ChatArea, ModelPicker, Sidebar, UsagePanel
 
@@ -354,3 +363,26 @@ def test_figtree_is_bundled_in_every_weight(qt_app: QApplication) -> None:
     styles = set(QFontDatabase.styles(UI_FONT_FAMILY))
     assert {"Regular", "Medium", "SemiBold", "Bold", "Italic", "Bold Italic"} <= styles
     assert qt_app is not None
+
+
+def test_ui_font_beats_per_widget_type_theme_fonts(qt_app: QApplication) -> None:
+    # Desktop themes (e.g. GNOME) set a font per widget type; the stylesheet must win.
+    load_fonts()
+    classes = ("QLabel", "QPushButton", "QMenu")
+    for cls in classes:
+        QApplication.setFont(QFont("DejaVu Sans"), cls)  # pyright: ignore[reportArgumentType] -- stubs say bytes; PySide6 only accepts str
+    try:
+        apply_theme(qt_app)
+        holder = QWidget()
+        layout = QVBoxLayout(holder)
+        widgets = [QLabel("text"), QPushButton("button"), QMenu()]
+        for widget in widgets[:2]:
+            layout.addWidget(widget)
+        holder.show()
+        for widget in widgets:
+            widget.ensurePolished()
+            assert QFontInfo(widget.font()).family() == UI_FONT_FAMILY, type(widget).__name__
+        holder.close()
+    finally:
+        for cls in classes:
+            QApplication.setFont(QApplication.font(), cls)  # pyright: ignore[reportArgumentType] -- as above

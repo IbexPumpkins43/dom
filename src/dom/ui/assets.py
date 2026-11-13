@@ -10,6 +10,8 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QFontDatabase, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from dom.ui.theme import UI_FONT_FAMILY
+
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
@@ -17,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 # Figtree (SIL Open Font License 1.1, assets/fonts/OFL.txt): static Regular, Medium, SemiBold,
 # Bold, Italic and Bold Italic cut from the variable font, which Qt handles unevenly per platform.
-UI_FONT_FAMILY = "Figtree"
 LOGO_FILE = "logo.svg"
 LOGO_COLOUR = "#FF7A4D"  # the fill in logo.svg (Brasa base09)
 
@@ -66,7 +67,8 @@ def load_fonts() -> set[str]:
 
 
 def use_ui_font(app: QApplication) -> bool:
-    """Make Figtree the font of every widget (keeping the system's font size).
+    """Make Figtree the default font (keeping the system's font size); call before
+    ``apply_theme``, whose stylesheet then applies it to every kind of widget.
 
     Returns False (and keeps the system font) if it could not be loaded.
     """

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFontDatabase, QPalette
 
 from dom.domain import ProfileColour
 
@@ -141,9 +141,20 @@ def build_palette(t: Base16) -> QPalette:
     return palette
 
 
-def build_stylesheet(t: Base16) -> str:
-    """The app's stylesheet in the scheme's colours."""
-    return f"""
+UI_FONT_FAMILY = "Figtree"  # bundled in ui/assets/fonts, registered by ui.assets.use_ui_font
+
+
+def build_stylesheet(t: Base16, font_family: str | None = None) -> str:
+    """The app's stylesheet in the scheme's colours, in ``font_family`` if given.
+
+    The font is set here, not only with ``QApplication.setFont``: desktop themes (e.g. GNOME)
+    give Qt a font per widget type (labels, buttons, menus, lists, tooltips...), and only a
+    stylesheet overrides all of them.
+    """
+    font_rule = f'* {{ font-family: "{font_family}"; }}\n' if font_family else ""
+    return (
+        font_rule
+        + f"""
 QToolTip {{ background: {t.base01}; color: {t.base05}; border: 1px solid {t.base03}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; }}
 QScrollBar::handle:vertical {{ background: {t.base02}; border-radius: 3px; min-height: 30px; }}
@@ -337,10 +348,12 @@ QProgressBar {{
 }}
 QProgressBar::chunk {{ background: {t.base09}; border-radius: 3px; }}
 """
+    )
 
 
 def apply_theme(app: QApplication, theme: Base16 = BRASA) -> None:
     """Use ``theme`` for every window of ``app``."""
     app.setStyle("Fusion")
     app.setPalette(build_palette(theme))
-    app.setStyleSheet(build_stylesheet(theme))
+    family = UI_FONT_FAMILY if QFontDatabase.hasFamily(UI_FONT_FAMILY) else None
+    app.setStyleSheet(build_stylesheet(theme, family))
