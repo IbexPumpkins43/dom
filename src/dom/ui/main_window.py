@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from dom.ui.library import LibraryController
 
 ERROR_DISPLAY_MS = 10_000
-USAGE_REFRESH_MS = 2000
+USAGE_REFRESH_MS = 200
 COMPOSER_MAX_WIDTH = 900
 
 _SERVER_LABELS: dict[ServerState, str] = {

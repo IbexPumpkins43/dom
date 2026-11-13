@@ -36,7 +36,7 @@ own title bar in the same colours (`src/dom/ui/titlebar.py`): drag it to move th
 double-click it to maximise, drag the window's edges to resize. Moving and resizing are done by the
 operating system, so snapping to screen edges keeps working. Every window dom opens (Get models,
 confirmations, error messages) uses the same title bar. The bottom of the sidebar shows how busy
-the computer is (CPU and memory, all programs), refreshed every 2 seconds.
+the computer is (CPU and memory, all programs), refreshed five times a second.
 
 Works on Windows x64, Windows ARM64 and Linux. The GUI is PySide6 (Qt), which has native
 Windows ARM64 builds.
