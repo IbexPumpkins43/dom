@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=dom
+Comment=Chat with AI models that run on your own computer
+Exec=@DEST@/dom
+Terminal=false
+Categories=Utility;Office;
+StartupWMClass=dom

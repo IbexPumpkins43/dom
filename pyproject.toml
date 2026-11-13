@@ -1,6 +1,6 @@
 [project]
 name = "dom"
-version = "0.1.0"
+version = "0.2.0"
 description = "A desktop app that makes local AI simple."
 readme = "README.md"
 license = "MIT"
@@ -51,6 +51,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [dependency-groups]
 dev = [
+    "pyinstaller>=6.22.3",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.5.0",

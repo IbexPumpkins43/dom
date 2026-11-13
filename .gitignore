@@ -4,8 +4,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
-build/
-dist/
+/build/
+/dist/
 *.egg-info/
 
 # Dev assets (binaries and models are never committed)

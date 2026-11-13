@@ -33,6 +33,7 @@ from dom.downloads.engine import EngineInstaller
 from dom.downloads.library import ModelLibrary
 from dom.hardware import HardwareProbe
 from dom.hardware.probe import read_memory
+from dom.selftest import run_self_test
 from dom.storage import SqliteConversationRepository, StorageError
 from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
@@ -50,6 +51,7 @@ logger = logging.getLogger("dom")
 # ticking while Qt's event loop waits, so Ctrl+C / SIGTERM close the app promptly.
 _SIGNAL_WAKE_MS = 250
 _LOG_BYTES = 2_000_000
+SELF_TEST_FLAG = "--self-test"
 
 
 def configure_logging(paths: AppPaths) -> None:
@@ -58,10 +60,14 @@ def configure_logging(paths: AppPaths) -> None:
     file_handler = RotatingFileHandler(
         paths.log_dir / "dom.log", maxBytes=_LOG_BYTES, backupCount=2, encoding="utf-8"
     )
+    handlers: list[logging.Handler] = [file_handler]
+    # A packaged Windows app has no console: sys.stderr is None there.
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[file_handler, logging.StreamHandler()],
+        handlers=handlers,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -157,6 +163,11 @@ def main() -> int:
     paths.ensure_exist()
     configure_logging(paths)
     logger.info("Starting dom (dev mode: %s), data in %s", is_dev_mode(), paths.data_dir)
+
+    if SELF_TEST_FLAG in sys.argv[1:]:
+        service = build_service(paths, InferenceSettings())
+        atexit.register(service.stop_now)
+        return asyncio.run(run_self_test(service))
 
     app = QApplication(sys.argv)
     app.setApplicationName("dom")

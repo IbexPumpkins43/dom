@@ -75,6 +75,29 @@ uv run pytest                    # unit tests
 uv run pytest -m integration     # real llama-server + test models (needs the fetch script first)
 ```
 
+## Building installers (milestone 2c)
+
+```sh
+uv run python scripts/build_release.py
+```
+
+builds dom for the computer it runs on, with llama.cpp (CPU and Vulkan builds, SHA-256 checked)
+inside the app folder, licence texts in `licenses/`, and:
+
+- **Linux**: `dist/dom-<version>-linux-<arch>.tar.gz`. Unpack it and run `install.sh` (installs
+  for the current user into `~/.local/opt/dom` and adds a menu entry; `uninstall.sh` removes it).
+  Under X11, Qt needs the usual X libraries (`libxcb-cursor0`, `libxkbcommon-x11-0`, …).
+- **Windows**: `dist/dom-<version>-windows-<x64|arm64>-setup.exe`, a per-user installer (no
+  administrator rights) made with [Inno Setup](https://jrsoftware.org/isinfo.php) if `iscc` is
+  installed; otherwise a `.zip` of the app folder.
+
+PyInstaller cannot cross-compile, so each platform is built on its own machine.
+`.github/workflows/release.yml` does this for Linux x64/ARM64 and Windows x64/ARM64, then installs
+each package and runs `dom --self-test` (start the engine, load the smallest model in the models
+folder, get an answer, stop) against the 0.8B test model.
+
+Chats, models and settings live in the user-data folder, so uninstalling or upgrading keeps them.
+
 ## Manual test checklist
 
 Run with `DOM_DEV=1 uv run python -m dom` after fetching the test assets.

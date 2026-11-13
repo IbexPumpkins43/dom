@@ -24,6 +24,7 @@ GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp"
 # build tag (b####) whose release holds the actual binaries.
 BUILD_TAG_ASSET = "nightly-tag.txt"
 VERSION_FILE = "VERSION"
+LLAMA_LICENSE_FILE = "LICENSE"
 
 
 class Target(StrEnum):
