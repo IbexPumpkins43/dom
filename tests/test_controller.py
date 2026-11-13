@@ -11,7 +11,7 @@ from dom.domain import ModelStatus, Role
 from dom.storage import SqliteConversationRepository
 from dom.ui.controller import ChatController, make_title
 from dom.ui.protocols import ServerState
-from tests.fakes import FakeInferenceService, RecordingView
+from tests.fakes import FakeEngine, FakeInferenceService, RecordingView
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -33,7 +33,7 @@ async def controller(
     tmp_path: Path, service: FakeInferenceService, view: RecordingView
 ) -> AsyncIterator[ChatController]:
     repo = SqliteConversationRepository(tmp_path / "dom.sqlite3")
-    ctrl = ChatController(service, repo, view, models_dir_hint="/models")
+    ctrl = ChatController(service, repo, view, FakeEngine(service))
     yield ctrl
     await ctrl.shutdown()
 
@@ -63,13 +63,55 @@ async def test_failed_start_is_reported_in_plain_english(
     assert not view.can_send
 
 
-async def test_no_models_shows_where_to_put_them(
+async def test_no_models_points_to_get_models(
     controller: ChatController, service: FakeInferenceService, view: RecordingView
 ) -> None:
     service.model_ids = []
     await controller.startup()
     assert view.notice is not None
-    assert "/models" in view.notice
+    assert "Get models" in view.notice
+
+
+async def test_missing_engine_can_be_downloaded(
+    controller: ChatController, service: FakeInferenceService, view: RecordingView
+) -> None:
+    service.engine_missing = True
+    await controller.startup()
+    assert view.server_states[-1][0] == ServerState.ENGINE_MISSING
+    await controller.install_engine()
+    states = [state for state, _ in view.server_states]
+    assert ServerState.INSTALLING in states
+    assert any(m and "50%" in m for s, m in view.server_states if s == ServerState.INSTALLING)
+    assert states[-1] == ServerState.READY
+
+
+async def test_failed_engine_download_explains_and_allows_retry(
+    tmp_path: Path, service: FakeInferenceService, view: RecordingView
+) -> None:
+    service.engine_missing = True
+    engine = FakeEngine(service, error="GitHub could not be reached")
+    repo = SqliteConversationRepository(tmp_path / "dom.sqlite3")
+    ctrl = ChatController(service, repo, view, engine)
+    await ctrl.startup()
+    await ctrl.install_engine()
+    state, message = view.server_states[-1]
+    assert state == ServerState.ENGINE_MISSING
+    assert message is not None
+    assert "GitHub could not be reached" in message
+    await ctrl.shutdown()
+
+
+async def test_models_changed_rescans(
+    controller: ChatController, service: FakeInferenceService, view: RecordingView
+) -> None:
+    service.model_ids = []
+    await controller.startup()
+    service.model_ids = ["new-model"]
+    await controller.models_changed()
+    assert service.reloads == 1
+    assert [m.id for m in view.models] == ["new-model"]
+    assert view.notice is not None
+    assert "Pick a model" in view.notice
 
 
 async def test_selecting_a_model_enables_input(
@@ -89,7 +131,8 @@ async def test_loading_reports_progress_and_details(
     controller: ChatController, view: RecordingView
 ) -> None:
     await _ready(controller)
-    assert view.hardware == "Test OS, 8 CPU cores, 16 GB RAM"
+    assert view.hardware is not None
+    assert "8 CPU cores, 16 GB RAM" in view.hardware
     assert view.model_details == [
         "Preparing the model…",
         "Testing speed…",

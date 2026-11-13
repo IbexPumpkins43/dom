@@ -4,10 +4,12 @@
 
 **dom** is a desktop AI harness that makes local AI simple for people with no experience. Python + PySide6 (Qt) GUI,
 llama.cpp (`llama-server`) running locally as the inference backend. Everything runs on the
-user's machine: no cloud APIs, no telemetry, and the app makes no network calls except to
-`127.0.0.1`. The only exception is `scripts/fetch_test_assets.py`, a dev-only script that
-downloads the `llama-server` binary (GitHub releases) and two test models (Qwen3.5-0.8B
-Q4_K_M and Q8_0, from Hugging Face) into `.dev/`.
+user's machine: no cloud APIs, no telemetry. The app talks to `127.0.0.1` only, except for
+downloads the user explicitly starts (a catalog model from Hugging Face, or the llama.cpp
+engine from GitHub releases). All such traffic goes through `dom.downloads.make_client`, which
+refuses any host outside `ALLOWED_HOSTS`; nothing runs in the background. The dev-only
+`scripts/fetch_test_assets.py` uses the same code to fetch the llama.cpp builds and two test
+models (Qwen3.5-0.8B Q4_K_M and Q8_0) into `.dev/`.
 
 ## Commands
 

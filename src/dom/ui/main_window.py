@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from dom.ui.controller import spawn
+from dom.ui.library_dialog import LibraryDialog
 from dom.ui.protocols import ServerState
 from dom.ui.style import STYLESHEET
 from dom.ui.widgets import Banner, ChatArea, ChatInput, ModelPicker, Sidebar
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
     from dom.domain import Conversation, Message, ModelInfo
     from dom.ui.controller import ChatController
+    from dom.ui.library import LibraryController
 
 ERROR_DISPLAY_MS = 10_000
 
@@ -34,6 +36,8 @@ _SERVER_LABELS: dict[ServerState, str] = {
     ServerState.STARTING: "Starting the AI engine…",
     ServerState.READY: "AI engine running",
     ServerState.FAILED: "AI engine unavailable",
+    ServerState.ENGINE_MISSING: "AI engine not installed",
+    ServerState.INSTALLING: "Installing the AI engine…",
     ServerState.CRASHED: "AI engine stopped",
     ServerState.STOPPED: "AI engine stopped",
 }
@@ -47,6 +51,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._on_closed = on_closed
         self._controller: ChatController | None = None
+        self._library: LibraryController | None = None
+        self._library_dialog: LibraryDialog | None = None
+        self._offered_library = False
         self._tasks: set[asyncio.Task[None]] = set()
         self._closing = False
         self._closed = False
@@ -123,15 +130,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(main, 1)
         self.setCentralWidget(central)
 
-    def attach(self, controller: ChatController) -> None:
-        """Connect UI events to ``controller``."""
+    def attach(self, controller: ChatController, library: LibraryController) -> None:
+        """Connect UI events to the chat and library controllers."""
         self._controller = controller
+        self._library = library
+        self._sidebar.get_models_requested.connect(self._open_library)
         self._input.submitted.connect(self._submit)
         self._send.clicked.connect(self._send_or_stop)
         self._picker.model_chosen.connect(self._on_model_chosen)
         self._sidebar.new_chat_requested.connect(lambda: self._run(controller.new_chat()))
         self._sidebar.conversation_selected.connect(self._on_conversation_selected)
-        self._banner.action_clicked.connect(lambda: self._run(controller.restart_server()))
+        self._banner.action_clicked.connect(self._on_banner_action)
         self.set_input_state(can_send=False, streaming=False)
 
     # ---- ChatView ------------------------------------------------------------------------
@@ -153,11 +162,19 @@ class MainWindow(QMainWindow):
             self._banner.show_message(
                 message or "The AI engine could not start.", "Try again", error=True
             )
+        elif state == ServerState.ENGINE_MISSING:
+            text = message or "The AI engine (llama.cpp) is not installed yet."
+            self._banner.show_message(text, "Download AI engine", error=True)
+        elif state == ServerState.INSTALLING:
+            self._banner.show_message(message or "Installing the AI engine…", None, error=False)
         self._picker.setEnabled(state == ServerState.READY and not self._streaming)
 
     def show_models(self, models: Sequence[ModelInfo], selected_id: str | None) -> None:
-        """Fill the model picker."""
+        """Fill the model picker (and offer downloads the first time there are none)."""
         self._picker.set_models(models, selected_id)
+        if not models and not self._offered_library and self._server_state == ServerState.READY:
+            self._offered_library = True
+            self._open_library()
 
     def show_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
@@ -226,6 +243,37 @@ class MainWindow(QMainWindow):
         self._input.clear()
         self._run(controller.send(text))
 
+    def _on_banner_action(self) -> None:
+        if self._controller is None:
+            return
+        if self._server_state == ServerState.ENGINE_MISSING:
+            self._run(self._controller.install_engine())
+        else:
+            self._run(self._controller.restart_server())
+
+    def _open_library(self) -> None:
+        library = self._library
+        if library is None:
+            return
+        if self._library_dialog is None:
+            dialog = LibraryDialog(self)
+            dialog.setStyleSheet(STYLESHEET)
+            dialog.download_requested.connect(self._download_model)
+            dialog.cancel_requested.connect(self._cancel_download)
+            library.attach(dialog)
+            self._library_dialog = dialog
+        self._library_dialog.show()
+        self._library_dialog.raise_()
+        self._run(library.refresh())
+
+    def _download_model(self, key: str) -> None:
+        if self._library is not None:
+            self._run(self._library.download(key))
+
+    def _cancel_download(self, key: str) -> None:
+        if self._library is not None:
+            self._run(self._library.cancel(key))
+
     def _on_model_chosen(self, model_id: str) -> None:
         if self._controller is not None:
             self._run(self._controller.select_model(model_id))
@@ -256,6 +304,8 @@ class MainWindow(QMainWindow):
 
     async def _shutdown_then_close(self, controller: ChatController) -> None:
         try:
+            if self._library is not None:
+                await self._library.shutdown()
             await controller.shutdown()
         finally:
             self._closed = True

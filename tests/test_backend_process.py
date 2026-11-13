@@ -153,3 +153,12 @@ async def test_binary_that_exits_immediately_raises(tmp_path: Path) -> None:
         await process.start()
     assert not process.is_running
     assert "model dir missing" in process.log_tail()
+
+
+def test_downloaded_engine_comes_before_the_bundled_one(tmp_path: Path) -> None:
+    bundled = _make_file(tmp_path / "app" / "llama" / "cpu" / server_executable_name())
+    builds = find_server_builds(None, [tmp_path / "data" / "bin", tmp_path / "app" / "llama"])
+    assert builds == [ServerBuild("cpu", bundled)]
+    downloaded = _make_file(tmp_path / "data" / "bin" / "vulkan" / server_executable_name())
+    builds = find_server_builds(None, [tmp_path / "data" / "bin", tmp_path / "app" / "llama"])
+    assert builds == [ServerBuild("vulkan", downloaded)]

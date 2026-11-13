@@ -41,7 +41,7 @@ class HardwareProfile:
     logical_cores: int | None
     memory: MemoryStatus
     gpus: tuple[GpuDevice, ...]
-    build: ServerBuild
+    build: ServerBuild | None
 
     @property
     def gpu(self) -> GpuDevice | None:

@@ -261,6 +261,7 @@ class Sidebar(QFrame):
     """Past conversations (newest first) and the New chat button."""
 
     new_chat_requested = Signal()
+    get_models_requested = Signal()
     conversation_selected = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -275,6 +276,10 @@ class Sidebar(QFrame):
         self._new_chat.setObjectName("newChat")
         self._new_chat.clicked.connect(self.new_chat_requested.emit)
         layout.addWidget(self._new_chat)
+        self._get_models = QPushButton("↓  Get models")
+        self._get_models.setObjectName("newChat")
+        self._get_models.clicked.connect(self.get_models_requested.emit)
+        layout.addWidget(self._get_models)
         heading = QLabel("Chats")
         heading.setObjectName("sidebarHeading")
         layout.addWidget(heading)

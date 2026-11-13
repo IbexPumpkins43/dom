@@ -11,6 +11,10 @@ class ServerStartError(BackendError):
     """llama-server could not be started or never became healthy."""
 
 
+class EngineMissingError(ServerStartError):
+    """llama-server is not installed (dom can offer to download it)."""
+
+
 class ServerCrashedError(BackendError):
     """llama-server stopped unexpectedly."""
 

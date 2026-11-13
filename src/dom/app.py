@@ -15,10 +15,11 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from dom.backend import LlamaInferenceService, LlamaServerProcess, ServerConfig
-from dom.backend.errors import ServerStartError
+from dom.backend.errors import EngineMissingError
 from dom.backend.lazy import LazyInferenceService
 from dom.backend.presets import PresetFile
 from dom.backend.service import AutoTuning
+from dom.catalog import CATALOG
 from dom.config import (
     AppPaths,
     InferenceSettings,
@@ -28,11 +29,14 @@ from dom.config import (
     find_server_builds,
     is_dev_mode,
 )
+from dom.downloads.engine import EngineInstaller
+from dom.downloads.library import ModelLibrary
 from dom.hardware import HardwareProbe
 from dom.hardware.probe import read_memory
 from dom.storage import SqliteConversationRepository, StorageError
 from dom.tuning import BenchmarkCache, LlamaBench
 from dom.ui.controller import ChatController, spawn
+from dom.ui.library import LibraryController
 from dom.ui.main_window import MainWindow
 
 if TYPE_CHECKING:
@@ -74,12 +78,19 @@ def build_service(paths: AppPaths, defaults: InferenceSettings) -> InferenceServ
 
     async def create() -> InferenceService:
         try:
-            builds = find_server_builds(configured_server_path(), paths.bin_dir)
+            builds = find_server_builds(configured_server_path(), paths.engine_dirs)
         except LlamaServerNotFoundError as exc:
             logger.warning("llama-server not found; searched: %s", ", ".join(exc.searched))
-            raise ServerStartError(str(exc)) from exc
+            raise EngineMissingError(
+                "The AI engine (llama.cpp) is not installed yet. dom can download it for you "
+                "from GitHub (about 60 MB), or you can put llama-server and its files in "
+                f"{paths.bin_dir}."
+            ) from exc
         hardware = await HardwareProbe().detect(builds)
-        binary = hardware.build.path
+        build = hardware.build
+        if build is None:
+            raise EngineMissingError("No usable llama-server build was found.")
+        binary = build.path
         logger.info("Using llama-server at %s", binary)
         presets = PresetFile(paths.data_dir / "presets.ini", defaults)
         process = LlamaServerProcess(
@@ -110,8 +121,15 @@ async def _run(
 ) -> int:
     closed = asyncio.Event()
     window = MainWindow(on_closed=closed.set)
-    controller = ChatController(service, repo, window, models_dir_hint=str(paths.models_dir))
-    window.attach(controller)
+    controller = ChatController(service, repo, window, EngineInstaller(paths.bin_dir))
+    probe = HardwareProbe()
+    library = LibraryController(
+        CATALOG,
+        ModelLibrary(paths.models_dir, CATALOG),
+        hardware=lambda: service.hardware_profile() or probe.basic(),
+        on_installed=controller.models_changed,
+    )
+    window.attach(controller, library)
     window.show()
 
     loop = asyncio.get_running_loop()

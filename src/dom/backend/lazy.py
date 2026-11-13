@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
     from dom.backend.protocols import InferenceService
     from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
+    from dom.hardware import HardwareProfile
 
 
 class LazyInferenceService:
@@ -55,9 +56,13 @@ class LazyInferenceService:
         """Load a model with the real service."""
         return await self._require().select_model(model_id, on_progress)
 
-    def hardware_summary(self) -> str | None:
-        """The real service's hardware summary, once it exists."""
-        return self._inner.hardware_summary() if self._inner is not None else None
+    def hardware_profile(self) -> HardwareProfile | None:
+        """The real service's hardware profile, once it exists."""
+        return self._inner.hardware_profile() if self._inner is not None else None
+
+    async def reload_models(self) -> list[ModelInfo]:
+        """Re-scan the models folder with the real service."""
+        return await self._require().reload_models()
 
     def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]

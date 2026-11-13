@@ -17,6 +17,8 @@ class ServerState(StrEnum):
     STARTING = "starting"
     READY = "ready"
     FAILED = "failed"
+    ENGINE_MISSING = "engine_missing"
+    INSTALLING = "installing"
     CRASHED = "crashed"
     STOPPED = "stopped"
 

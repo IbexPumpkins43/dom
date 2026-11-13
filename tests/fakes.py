@@ -6,8 +6,26 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from dom.backend.errors import BackendError, ModelLoadError, ServerStartError
+from dom.backend.errors import (
+    BackendError,
+    EngineMissingError,
+    ModelLoadError,
+    ServerStartError,
+)
 from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo, ModelStatus
+from dom.downloads import DownloadError
+from dom.hardware import HardwareProfile, MemoryStatus
+from dom.hardware.models import GIB
+
+TEST_HARDWARE = HardwareProfile(
+    os_name="Test OS",
+    arch="x86_64",
+    physical_cores=8,
+    logical_cores=16,
+    memory=MemoryStatus(16 * GIB, 10 * GIB),
+    gpus=(),
+    build=None,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
@@ -30,6 +48,7 @@ class FakeInferenceService:
         ]
     )
     start_error: str | None = None
+    engine_missing: bool = False
     load_error: str | None = None
     stream_error_after: int | None = None
     endless_stream: bool = False
@@ -41,10 +60,13 @@ class FakeInferenceService:
     _crash: asyncio.Future[int | None] | None = None
     first_token: asyncio.Event = field(default_factory=asyncio.Event)
     progress_seen: list[str] = field(default_factory=list[str])
+    reloads: int = 0
     endless_started: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def start(self) -> None:
         self.starts += 1
+        if self.engine_missing:
+            raise EngineMissingError("llama-server is missing")
         if self.start_error is not None:
             raise ServerStartError(self.start_error)
         self._crash = asyncio.get_running_loop().create_future()
@@ -86,8 +108,12 @@ class FakeInferenceService:
             ModelInfo(model_id, ModelStatus.LOADED), 32768, "Test GPU (GPU)", tuned=True
         )
 
-    def hardware_summary(self) -> str | None:
-        return "Test OS, 8 CPU cores, 16 GB RAM"
+    def hardware_profile(self) -> HardwareProfile | None:
+        return TEST_HARDWARE
+
+    async def reload_models(self) -> list[ModelInfo]:
+        self.reloads += 1
+        return await self.list_models()
 
     async def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]
@@ -106,6 +132,53 @@ class FakeInferenceService:
                 yield ChatDelta(content=".")
         finally:
             self.stream_closed = True
+
+
+@dataclass
+class FakeEngine:
+    """An ``EngineDownloads`` that pretends to install, optionally failing."""
+
+    service: FakeInferenceService
+    error: str | None = None
+    installs: int = 0
+
+    async def install(self, progress: Callable[[str, int, int], None]) -> None:
+        self.installs += 1
+        progress("CPU engine", 50, 100)
+        await asyncio.sleep(0)
+        if self.error is not None:
+            raise DownloadError(self.error)
+        self.service.start_error = None
+        self.service.engine_missing = False
+
+
+@dataclass
+class FakeDownloads:
+    """A ``ModelDownloads`` over an in-memory folder."""
+
+    files: set[str] = field(default_factory=set[str])
+    partial: dict[str, int] = field(default_factory=dict[str, int])
+    error: str | None = None
+    block: asyncio.Event | None = None
+    downloaded: list[str] = field(default_factory=list[str])
+
+    async def installed_files(self) -> set[str]:
+        return set(self.files)
+
+    async def partial_bytes(self, filename: str) -> int:
+        return self.partial.get(filename, 0)
+
+    async def download(
+        self, model_key: str, filename: str, progress: Callable[[int, int], None]
+    ) -> None:
+        progress(1, 2)
+        if self.block is not None:
+            await self.block.wait()
+        if self.error is not None:
+            raise DownloadError(self.error)
+        progress(2, 2)
+        self.files.add(filename)
+        self.downloaded.append(filename)
 
 
 @dataclass

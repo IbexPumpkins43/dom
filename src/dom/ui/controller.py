@@ -8,8 +8,9 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from dom.backend.errors import BackendError
+from dom.backend.errors import BackendError, EngineMissingError
 from dom.domain import ChatMessage, LoadedModel, Message, ModelInfo, ModelStatus, Role
+from dom.downloads import DownloadError
 from dom.storage.errors import StorageError
 from dom.ui.protocols import ServerState
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Coroutine
 
     from dom.backend.protocols import InferenceService
+    from dom.downloads.protocols import EngineDownloads
     from dom.storage.protocols import ConversationRepository
     from dom.ui.protocols import ChatView
 
@@ -54,13 +56,13 @@ class ChatController:
         service: InferenceService,
         repository: ConversationRepository,
         view: ChatView,
-        models_dir_hint: str,
+        engine: EngineDownloads,
     ) -> None:
         """Wire up the controller; nothing starts until ``startup`` is awaited."""
         self._service = service
+        self._engine = engine
         self._repo = repository
         self._view = view
-        self._models_dir_hint = models_dir_hint
         self._server_state = ServerState.STOPPED
         self._models: list[ModelInfo] = []
         self._selected_model: str | None = None
@@ -82,7 +84,9 @@ class ChatController:
 
     async def restart_server(self) -> None:
         """Start the server again after a crash or failed start, reloading the picked model."""
-        if self._server_state in (ServerState.STARTING, ServerState.READY):
+        if self._server_state in (
+            ServerState.STARTING, ServerState.READY, ServerState.INSTALLING
+        ):  # fmt: skip
             return
         await self._start_server()
         if self.server_state == ServerState.READY and self._selected_model is not None:
@@ -113,14 +117,54 @@ class ChatController:
         self._set_server_state(ServerState.STARTING, None)
         try:
             await self._service.start()
+        except EngineMissingError as exc:
+            logger.warning("AI engine missing: %s", exc)
+            self._set_server_state(ServerState.ENGINE_MISSING, str(exc))
+            return
         except BackendError as exc:
             logger.warning("Server start failed: %s", exc)
             self._set_server_state(ServerState.FAILED, str(exc))
             return
         self._set_server_state(ServerState.READY, None)
-        self._view.show_hardware(self._service.hardware_summary())
+        profile = self._service.hardware_profile()
+        self._view.show_hardware(profile.summary() if profile is not None else None)
         self._watch_task = asyncio.create_task(self._watch_for_crash())
         await self._refresh_models()
+
+    async def install_engine(self) -> None:
+        """Download the AI engine (llama.cpp), then start it."""
+        if self._server_state != ServerState.ENGINE_MISSING:
+            return
+        self._set_server_state(ServerState.INSTALLING, "Downloading the AI engine…")
+
+        def progress(label: str, done: int, total: int) -> None:
+            pct = 100 * done // total if total else 100
+            mb = f"{done / 1e6:.0f} of {total / 1e6:.0f} MB"
+            self._view.show_server_state(
+                ServerState.INSTALLING, f"Downloading the {label}: {pct}% ({mb})"
+            )
+
+        try:
+            await self._engine.install(progress)
+        except DownloadError as exc:
+            self._set_server_state(
+                ServerState.ENGINE_MISSING, f"The AI engine could not be downloaded. {exc}"
+            )
+            return
+        await self._start_server()
+
+    async def models_changed(self) -> None:
+        """Re-scan the models folder after a download."""
+        if self._server_state != ServerState.READY:
+            return
+        try:
+            models = await self._service.reload_models()
+        except BackendError as exc:
+            self._view.show_error(str(exc))
+            return
+        self._models = [self._as_loading(m) for m in models]
+        self._view.show_models(self._models, self._selected_model)
+        self._update_input()
 
     async def _watch_for_crash(self) -> None:
         code = await self._service.wait_for_crash()
@@ -342,10 +386,7 @@ class ChatController:
         if self._server_state != ServerState.READY or self._messages:
             return None
         if not self._models:
-            return (
-                "No models found. Put a .gguf model file in this folder and restart dom: "
-                f"{self._models_dir_hint}"
-            )
+            return "No models yet. Click “Get models” on the left to download one."
         if self._selected_model is None:
             return "Pick a model at the top to start chatting."
         if self.loaded_model is None:

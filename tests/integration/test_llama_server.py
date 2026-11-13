@@ -48,6 +48,7 @@ async def _make_service(
 ) -> tuple[LlamaInferenceService, LlamaServerProcess, AutoTuning]:
     """The same wiring as ``dom.app.build_service``, keeping the process for inspection."""
     hardware = await HardwareProbe().detect(builds)
+    assert hardware.build is not None
     binary = hardware.build.path
     presets = PresetFile(tmp_path / "presets.ini", InferenceSettings())
     process = LlamaServerProcess(

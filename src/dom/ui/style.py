@@ -75,4 +75,20 @@ STYLESHEET = """
 #sendButton:disabled { background: palette(mid); color: palette(base); }
 #sendButton[stop="true"] { background: #d9534f; color: white; }
 #errorLabel { color: #d9534f; }
+
+#dialogHeading { font-size: 18px; font-weight: 600; }
+#modelRow {
+    border: 1px solid palette(midlight);
+    border-radius: 10px;
+    background: palette(base);
+}
+#modelRowTitle { font-weight: 600; font-size: 14px; }
+#modelRowDetails { color: palette(placeholder-text); font-size: 12px; }
+#badge {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 11px;
+}
 """

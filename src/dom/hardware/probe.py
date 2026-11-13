@@ -128,6 +128,18 @@ class HardwareProbe:
         self._memory_reader = memory_reader
         self._device_lister = device_lister
 
+    def basic(self) -> HardwareProfile:
+        """RAM and CPU only, for when no llama-server build is installed yet."""
+        return HardwareProfile(
+            os_name=platform.system(),
+            arch=platform.machine(),
+            physical_cores=psutil.cpu_count(logical=False),
+            logical_cores=psutil.cpu_count(logical=True),
+            memory=self._memory_reader(),
+            gpus=(),
+            build=None,
+        )
+
     def memory(self) -> MemoryStatus:
         """Current RAM (fast; call it right before loading a model)."""
         return self._memory_reader()

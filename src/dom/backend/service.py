@@ -109,9 +109,14 @@ class LlamaInferenceService:
         await self._process.stop()
         return code
 
-    def hardware_summary(self) -> str | None:
+    def hardware_profile(self) -> HardwareProfile | None:
         """What was detected about this computer."""
-        return self._tuning.hardware.summary()
+        return self._tuning.hardware
+
+    async def reload_models(self) -> list[ModelInfo]:
+        """Re-scan the models folder, then list the models."""
+        await self._require_client().list_models(reload=True)
+        return await self.list_models()
 
     # ---- models --------------------------------------------------------------------------
 

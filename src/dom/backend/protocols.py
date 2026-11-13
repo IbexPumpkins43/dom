@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
     from dom.domain import ChatDelta, ChatMessage, LoadedModel, ModelInfo
+    from dom.hardware import HardwareProfile
 
 
 class InferenceService(Protocol):
@@ -42,8 +43,12 @@ class InferenceService(Protocol):
         """
         ...
 
-    def hardware_summary(self) -> str | None:
+    def hardware_profile(self) -> HardwareProfile | None:
         """What was detected about this computer, once the server has started."""
+        ...
+
+    async def reload_models(self) -> list[ModelInfo]:
+        """Re-scan the models folder (after a download) and return the models."""
         ...
 
     def stream_chat(

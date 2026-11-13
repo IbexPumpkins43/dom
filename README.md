@@ -18,6 +18,18 @@ as Markdown, a Stop button, and chat history that survives restarts.
 - **Thinking budget**: scaled with model size.
 - Models that cannot fit are greyed out in the picker with an explanation.
 
+**Milestone 2b** adds downloads, only ever started by the user:
+
+- **Get models** (left sidebar) lists 11 chat models from 0.8B to 35B parameters (Qwen, Gemma,
+  gpt-oss), each judged against this computer: whether it fits, which file size to use, about
+  how fast it will answer, and one **Recommended** pick. Downloads come from Hugging Face, can be
+  cancelled and resumed, and are checked against the published SHA-256 before they are used.
+  The window opens by itself the first time there are no models.
+- If the AI engine (llama.cpp) is missing, a **Download AI engine** button installs the CPU and
+  GPU builds from GitHub.
+- dom contacts nothing except Hugging Face and GitHub, and only for these downloads. Every
+  request is checked against an allow-list.
+
 Works on Windows x64, Windows ARM64 and Linux. The GUI is PySide6 (Qt), which has native
 Windows ARM64 builds.
 
@@ -44,14 +56,14 @@ On Linux, Qt needs the `libxcb-cursor0` system package when running under X11.
 
 | | Development (`DOM_DEV=1`) | Normal |
 |---|---|---|
-| `llama-server` | `.dev/bin/<build>/` | `DOM_LLAMA_SERVER` if set, else `<data>/bin/<build>/` (or `<data>/bin/`), else `PATH` |
+| `llama-server` | `.dev/bin/<build>/` | `DOM_LLAMA_SERVER` if set, else `<data>/bin/<build>/` (downloaded by dom), else the copy installed with dom, else `PATH` |
 | Models (`*.gguf`) | `.dev/models/` | `<data>/models/` |
 | Chat history | `.dev/data/dom.sqlite3` | `<data>/dom.sqlite3` |
 | Logs | `.dev/data/logs/` | `<data>/logs/` (`dom.log`, `llama-server.log`) |
 | Tuning files | `.dev/data/` | `<data>/presets.ini` (rewritten by dom), `<data>/benchmarks.json` |
 
 `<data>` is the OS user-data folder: `~/.local/share/dom` on Linux, `%LOCALAPPDATA%\dom` on
-Windows.
+Windows. Set `DOM_DATA_DIR` to use another folder (for testing, or a portable install).
 
 ## Checks
 
@@ -94,6 +106,12 @@ Run with `DOM_DEV=1 uv run python -m dom` after fetching the test assets.
    "Running on Intel(R) Iris(R) Xe Graphics (GPU) · 32k context" or "Running on CPU · 16k
    context". Close and reopen dom and pick the same model: the speed test does not run again.
    `dom.log` records the detected hardware, the speed-test results and the chosen settings.
+8. **Downloads (milestone 2b).** Click **Get models**. Every model shows whether it fits, its
+   download size and speed estimate, and one is marked **Recommended**. Download the smallest one,
+   cancel half way, click **Resume**: it continues where it stopped, then shows **Downloaded** and
+   appears in the model picker. To test the engine download, start with an empty data folder
+   (e.g. `DOM_DATA_DIR=/tmp/dom-test uv run python -m dom`, see below): the banner offers
+   **Download AI engine**, and after it finishes the engine starts by itself.
 
 Optional: kill the `llama-server` process while the app is running. The banner says the AI engine
 stopped unexpectedly and offers **Restart**, which also reloads the model you had picked.

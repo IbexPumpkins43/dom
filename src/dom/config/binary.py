@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 SERVER_STEM = "llama-server"
 # Optional explicit location of llama-server (there is no settings screen yet).
@@ -40,6 +40,17 @@ def configured_server_path() -> Path | None:
     return Path(value) if value else None
 
 
+def _builds_in(directory: Path, exe: str) -> list[ServerBuild]:
+    builds: list[ServerBuild] = []
+    if directory.is_dir():
+        for sub in sorted(p for p in directory.iterdir() if p.is_dir()):
+            if (sub / exe).is_file():
+                builds.append(ServerBuild(sub.name, sub / exe))
+    if (directory / exe).is_file():
+        builds.append(ServerBuild("default", directory / exe))
+    return builds
+
+
 @dataclass(frozen=True, slots=True)
 class ServerBuild:
     """One installed llama-server build, e.g. ``cpu`` or ``vulkan``."""
@@ -50,33 +61,31 @@ class ServerBuild:
 
 def find_server_builds(
     configured: Path | None,
-    bin_dir: Path,
+    bin_dirs: Path | Sequence[Path],
     which: Callable[[str], str | None] = shutil.which,
 ) -> list[ServerBuild]:
     """Locate llama-server builds.
 
-    Order: the configured path (used alone if set and present); otherwise every
-    ``bin_dir/<name>/llama-server`` plus ``bin_dir/llama-server``; otherwise ``PATH``.
+    Order: the configured path (used alone if set and present); otherwise the first of
+    ``bin_dirs`` that has any build (every ``<dir>/<name>/llama-server`` plus
+    ``<dir>/llama-server``); otherwise ``PATH``.
 
     Raises:
-        LlamaServerNotFoundError: if no build is found anywhere.
+        LlamaServerNotFoundError: if no build is found anywhere (names the first folder).
     """
+    dirs = [bin_dirs] if isinstance(bin_dirs, Path) else list(bin_dirs)
+    bin_dir = dirs[0]
     exe = server_executable_name()
     searched: list[str] = []
     if configured is not None:
         searched.append(str(configured))
         if configured.is_file():
             return [ServerBuild("configured", configured)]
-    builds: list[ServerBuild] = []
-    if bin_dir.is_dir():
-        for sub in sorted(p for p in bin_dir.iterdir() if p.is_dir()):
-            if (sub / exe).is_file():
-                builds.append(ServerBuild(sub.name, sub / exe))
-    if (bin_dir / exe).is_file():
-        builds.append(ServerBuild("default", bin_dir / exe))
-    searched.append(str(bin_dir / exe))
-    if builds:
-        return builds
+    for directory in dirs:
+        builds = _builds_in(directory, exe)
+        searched.append(str(directory / exe))
+        if builds:
+            return builds
     searched.append(f"{SERVER_STEM} on PATH")
     on_path = which(SERVER_STEM)
     if on_path is not None:
