@@ -285,11 +285,18 @@ class LlamaClient:
                 if not response.is_success:
                     text = (await response.aread()).decode("utf-8", errors="replace")
                     raise _error_from_response(response.status_code, text)
+                # Keep reading after [DONE] until the server ends the response: returning early
+                # would leave httpx's internal generators suspended, and they would then be
+                # finalised from another task (which anyio rejects with a RuntimeError).
+                done = False
                 async for line in response.aiter_lines():
+                    if done:
+                        continue
                     try:
                         delta = parse_sse_line(line)
                     except _StreamDoneError:
-                        return
+                        done = True
+                        continue
                     if delta is not None:
                         yield delta
         except httpx.HTTPError as exc:

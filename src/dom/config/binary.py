@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 SERVER_STEM = "llama-server"
+# Optional explicit location of llama-server (there is no settings screen yet).
+CONFIGURED_PATH_ENV = "DOM_LLAMA_SERVER"
 
 
 class LlamaServerNotFoundError(Exception):
@@ -28,6 +31,12 @@ class LlamaServerNotFoundError(Exception):
 def server_executable_name(platform: str = sys.platform) -> str:
     """File name of the executable on this OS."""
     return f"{SERVER_STEM}.exe" if platform == "win32" else SERVER_STEM
+
+
+def configured_server_path() -> Path | None:
+    """The llama-server path set in ``DOM_LLAMA_SERVER``, if any."""
+    value = os.environ.get(CONFIGURED_PATH_ENV, "").strip()
+    return Path(value) if value else None
 
 
 def find_llama_server(

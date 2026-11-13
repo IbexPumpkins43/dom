@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from dom.domain import ChatDelta, ChatMessage, ModelInfo
 
@@ -39,6 +39,6 @@ class InferenceService(Protocol):
 
     def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]
-    ) -> AsyncIterator[ChatDelta]:
+    ) -> AsyncGenerator[ChatDelta]:
         """Stream a reply; stop iterating or cancel to stop generation."""
         ...

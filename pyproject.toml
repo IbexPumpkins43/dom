@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dom = "dom.__main__:main"
+dom = "dom.app:main"
 
 [build-system]
 requires = ["hatchling"]

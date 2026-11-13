@@ -9,7 +9,7 @@ from dom.backend.client import LlamaClient
 from dom.backend.errors import ServerUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
     import httpx
 
@@ -61,6 +61,9 @@ class LlamaInferenceService:
             return None
         logger.error("llama-server exited unexpectedly with code %s", code)
         logger.error("Last server log lines:\n%s", self._process.log_tail())
+        # The router is gone, but a model process it started may not be: clean up the tree.
+        await self._close_client()
+        await self._process.stop()
         return code
 
     async def list_models(self) -> list[ModelInfo]:
@@ -73,7 +76,7 @@ class LlamaInferenceService:
 
     def stream_chat(
         self, model_id: str, messages: Sequence[ChatMessage]
-    ) -> AsyncIterator[ChatDelta]:
+    ) -> AsyncGenerator[ChatDelta]:
         """Stream a reply; stop iterating or cancel to stop generation."""
         return self._require_client().stream_chat(model_id, messages)
 

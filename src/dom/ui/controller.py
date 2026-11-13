@@ -1,0 +1,344 @@
+"""Chat controller: all UI behaviour that does not need Qt, so it can be tested with fakes."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from typing import TYPE_CHECKING
+
+from dom.backend.errors import BackendError
+from dom.domain import ChatMessage, Message, ModelInfo, ModelStatus, Role
+from dom.storage.errors import StorageError
+from dom.ui.protocols import ServerState
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
+    from dom.backend.protocols import InferenceService
+    from dom.storage.protocols import ConversationRepository
+    from dom.ui.protocols import ChatView
+
+logger = logging.getLogger(__name__)
+
+TITLE_MAX_CHARS = 60
+MODEL_POLL_INTERVAL_S = 0.5
+
+
+def make_title(text: str) -> str:
+    """A sidebar title from the first line of the first message."""
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "New chat")
+    if len(first_line) <= TITLE_MAX_CHARS:
+        return first_line
+    return first_line[: TITLE_MAX_CHARS - 1].rstrip() + "…"
+
+
+class ChatController:
+    """Coordinates the inference service, the conversation store and the view.
+
+    All public coroutines catch expected errors and report them to the view in plain English;
+    they are safe to fire-and-forget from UI callbacks.
+    """
+
+    def __init__(
+        self,
+        service: InferenceService,
+        repository: ConversationRepository,
+        view: ChatView,
+        models_dir_hint: str,
+    ) -> None:
+        """Wire up the controller; nothing starts until ``startup`` is awaited."""
+        self._service = service
+        self._repo = repository
+        self._view = view
+        self._models_dir_hint = models_dir_hint
+        self._server_state = ServerState.STOPPED
+        self._models: list[ModelInfo] = []
+        self._selected_model: str | None = None
+        self._conversation_id: str | None = None
+        self._messages: list[Message] = []
+        self._reply_task: asyncio.Task[None] | None = None
+        self._load_task: asyncio.Task[None] | None = None
+        self._watch_task: asyncio.Task[None] | None = None
+        self._shut_down = False
+
+    # ---- lifecycle -----------------------------------------------------------------------
+
+    async def startup(self) -> None:
+        """Load the sidebar and start the inference server."""
+        await self._refresh_conversations()
+        self._view.show_messages([])
+        await self._start_server()
+
+    async def restart_server(self) -> None:
+        """Start the server again after a crash or failed start, reloading the picked model."""
+        if self._server_state in (ServerState.STARTING, ServerState.READY):
+            return
+        await self._start_server()
+        if self.server_state == ServerState.READY and self._selected_model is not None:
+            await self.select_model(self._selected_model)
+
+    @property
+    def server_state(self) -> ServerState:
+        """The current server state."""
+        return self._server_state
+
+    async def shutdown(self) -> None:
+        """Stop any reply, stop the server and close storage."""
+        if self._shut_down:
+            return
+        self._shut_down = True
+        for task in (self._reply_task, self._load_task, self._watch_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        try:
+            await self._service.stop()
+        except BackendError:
+            logger.exception("Error while stopping the AI server")
+        await asyncio.to_thread(self._repo.close)
+
+    async def _start_server(self) -> None:
+        self._set_server_state(ServerState.STARTING, None)
+        try:
+            await self._service.start()
+        except BackendError as exc:
+            logger.warning("Server start failed: %s", exc)
+            self._set_server_state(ServerState.FAILED, str(exc))
+            return
+        self._set_server_state(ServerState.READY, None)
+        self._watch_task = asyncio.create_task(self._watch_for_crash())
+        await self._refresh_models()
+
+    async def _watch_for_crash(self) -> None:
+        code = await self._service.wait_for_crash()
+        if code is None or self._shut_down:
+            return
+        if self._reply_task is not None:
+            self._reply_task.cancel()
+        if self._load_task is not None:
+            self._load_task.cancel()
+        self._models = [ModelInfo(m.id, ModelStatus.UNLOADED, m.path) for m in self._models]
+        self._view.show_models(self._models, self._selected_model)
+        self._set_server_state(
+            ServerState.CRASHED,
+            f"The AI engine stopped unexpectedly (exit code {code}). "
+            "Click Restart to start it again.",
+        )
+
+    # ---- models --------------------------------------------------------------------------
+
+    async def select_model(self, model_id: str) -> None:
+        """Load ``model_id`` (unloading any other) and show progress in the picker."""
+        if self._server_state != ServerState.READY or self.is_streaming:
+            return
+        if self._load_task is not None and not self._load_task.done():
+            self._load_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._load_task
+        self._selected_model = model_id
+        self._models = [
+            ModelInfo(m.id, ModelStatus.LOADING, m.path) if m.id == model_id else m
+            for m in self._models
+        ]
+        self._view.show_models(self._models, model_id)
+        self._update_input()
+        self._load_task = asyncio.create_task(self._load(model_id))
+        await self._load_task
+
+    async def _load(self, model_id: str) -> None:
+        poller = asyncio.create_task(self._poll_models_while_loading())
+        try:
+            await self._service.select_model(model_id)
+        except BackendError as exc:
+            self._view.show_error(f"Could not load {model_id}. {exc}")
+        finally:
+            poller.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await poller
+        await self._refresh_models()
+
+    async def _poll_models_while_loading(self) -> None:
+        while True:
+            await asyncio.sleep(MODEL_POLL_INTERVAL_S)
+            await self._refresh_models()
+
+    async def _refresh_models(self) -> None:
+        try:
+            self._models = await self._service.list_models()
+        except BackendError as exc:
+            self._view.show_error(str(exc))
+            return
+        self._view.show_models(self._models, self._selected_model)
+        self._update_input()
+
+    @property
+    def loaded_model(self) -> str | None:
+        """The selected model, if it is loaded and ready for chat."""
+        for model in self._models:
+            if model.id == self._selected_model and model.status == ModelStatus.LOADED:
+                return model.id
+        return None
+
+    # ---- conversations -------------------------------------------------------------------
+
+    async def new_chat(self) -> None:
+        """Start a fresh conversation (saved once the first message is sent)."""
+        await self.stop_reply()
+        self._conversation_id = None
+        self._messages = []
+        self._view.show_messages([])
+        await self._refresh_conversations()
+        self._update_input()
+
+    async def open_conversation(self, conversation_id: str) -> None:
+        """Show a saved conversation."""
+        if conversation_id == self._conversation_id:
+            return
+        await self.stop_reply()
+        try:
+            messages = await asyncio.to_thread(self._repo.get_messages, conversation_id)
+        except StorageError as exc:
+            self._view.show_error(str(exc))
+            return
+        self._conversation_id = conversation_id
+        self._messages = messages
+        self._view.show_messages(messages)
+        await self._refresh_conversations()
+        self._update_input()
+
+    async def _refresh_conversations(self) -> None:
+        try:
+            conversations = await asyncio.to_thread(self._repo.list_conversations)
+        except StorageError as exc:
+            self._view.show_error(str(exc))
+            return
+        self._view.show_conversations(conversations, self._conversation_id)
+
+    # ---- chatting ------------------------------------------------------------------------
+
+    @property
+    def is_streaming(self) -> bool:
+        """True while a reply is being generated."""
+        return self._reply_task is not None and not self._reply_task.done()
+
+    async def send(self, text: str) -> None:
+        """Save the user's message and stream the assistant's reply."""
+        text = text.strip()
+        model_id = self.loaded_model
+        if not text or model_id is None or self.is_streaming:
+            return
+        try:
+            if self._conversation_id is None:
+                conversation = await asyncio.to_thread(
+                    self._repo.create_conversation, make_title(text)
+                )
+                self._conversation_id = conversation.id
+            message = await asyncio.to_thread(
+                self._repo.add_message, self._conversation_id, Role.USER, text
+            )
+        except StorageError as exc:
+            self._view.show_error(str(exc))
+            return
+        self._messages.append(message)
+        self._view.show_messages(self._messages)
+        await self._refresh_conversations()
+        self._reply_task = asyncio.create_task(self._stream_reply(self._conversation_id, model_id))
+        self._update_input()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._reply_task
+        self._update_input()
+
+    async def stop_reply(self) -> None:
+        """Stop the reply being generated; what was received so far is kept."""
+        task = self._reply_task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._update_input()
+
+    async def _stream_reply(self, conversation_id: str, model_id: str) -> None:
+        history = [ChatMessage(m.role, m.content) for m in self._messages]
+        content: list[str] = []
+        reasoning: list[str] = []
+        self._view.begin_reply()
+        try:
+            # aclosing: close the stream in this task even when cancelled, so the HTTP
+            # connection is released here rather than by the garbage collector in another task.
+            async with contextlib.aclosing(self._service.stream_chat(model_id, history)) as stream:
+                async for delta in stream:
+                    content.append(delta.content)
+                    reasoning.append(delta.reasoning)
+                    self._view.update_reply("".join(content), "".join(reasoning))
+        except asyncio.CancelledError:
+            logger.info("Reply stopped by the user")
+        except BackendError as exc:
+            self._view.show_error(str(exc))
+        finally:
+            self._view.end_reply()
+        await self._save_reply(conversation_id, model_id, "".join(content), "".join(reasoning))
+
+    async def _save_reply(
+        self, conversation_id: str, model_id: str, content: str, reasoning: str
+    ) -> None:
+        if not content and not reasoning:
+            self._view.show_messages(self._messages)
+            return
+        try:
+            message = await asyncio.to_thread(
+                self._repo.add_message,
+                conversation_id,
+                Role.ASSISTANT,
+                content,
+                reasoning=reasoning or None,
+                model_id=model_id,
+            )
+        except StorageError as exc:
+            self._view.show_error(str(exc))
+            return
+        if conversation_id == self._conversation_id:
+            self._messages.append(message)
+            self._view.show_messages(self._messages)
+        await self._refresh_conversations()
+
+    # ---- helpers -------------------------------------------------------------------------
+
+    def _set_server_state(self, state: ServerState, message: str | None) -> None:
+        self._server_state = state
+        self._view.show_server_state(state, message)
+        self._update_input()
+
+    def _update_input(self) -> None:
+        streaming = self.is_streaming
+        ready = self._server_state == ServerState.READY and self.loaded_model is not None
+        self._view.set_input_state(can_send=ready and not streaming, streaming=streaming)
+        self._view.show_notice(self._notice())
+
+    def _notice(self) -> str | None:
+        if self._server_state != ServerState.READY or self._messages:
+            return None
+        if not self._models:
+            return (
+                "No models found. Put a .gguf model file in this folder and restart dom: "
+                f"{self._models_dir_hint}"
+            )
+        if self._selected_model is None:
+            return "Pick a model at the top to start chatting."
+        if self.loaded_model is None:
+            return "Loading the model…"
+        return None
+
+
+def spawn(coro: Coroutine[object, object, None], tasks: set[asyncio.Task[None]]) -> None:
+    """Run a controller coroutine from a UI callback, keeping a reference until it finishes."""
+    task = asyncio.ensure_future(coro)
+    tasks.add(task)
+
+    def _done(t: asyncio.Task[None]) -> None:
+        tasks.discard(t)
+        if not t.cancelled() and (exc := t.exception()) is not None:
+            logger.error("Unexpected error in UI task", exc_info=exc)
+
+    task.add_done_callback(_done)

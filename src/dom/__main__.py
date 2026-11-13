@@ -1,9 +1,8 @@
 """Entry point: ``python -m dom``."""
 
+import sys
 
-def main() -> None:
-    """Start the dom desktop app."""
-
+from dom.app import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
