@@ -9,7 +9,12 @@ import pytest
 
 from dom.backend import LlamaServerProcess, ServerConfig, ServerStartError, build_command
 from dom.backend.process import build_env, pick_free_port
-from dom.config import InferenceSettings, LlamaServerNotFoundError, find_llama_server
+from dom.config import (
+    InferenceSettings,
+    LlamaServerNotFoundError,
+    ServerBuild,
+    find_server_builds,
+)
 from dom.config.binary import server_executable_name
 
 
@@ -60,7 +65,7 @@ def test_pick_free_port_returns_a_usable_port() -> None:
     assert 0 < port < 65536  # noqa: PLR2004
 
 
-# ---- finding the binary ------------------------------------------------------------------
+# ---- finding the builds ------------------------------------------------------------------
 
 
 def _make_file(path: Path) -> Path:
@@ -71,27 +76,34 @@ def _make_file(path: Path) -> Path:
 
 def test_configured_path_wins(tmp_path: Path) -> None:
     configured = _make_file(tmp_path / "custom" / "my-llama-server")
-    _make_file(tmp_path / "bin" / server_executable_name())
-    found = find_llama_server(configured, tmp_path / "bin", which=lambda _n: "/usr/bin/x")
-    assert found == configured
+    _make_file(tmp_path / "bin" / "cpu" / server_executable_name())
+    builds = find_server_builds(configured, tmp_path / "bin", which=lambda _n: "/usr/bin/x")
+    assert builds == [ServerBuild("configured", configured)]
 
 
-def test_bin_dir_before_path(tmp_path: Path) -> None:
-    in_bin = _make_file(tmp_path / "bin" / server_executable_name())
-    found = find_llama_server(None, tmp_path / "bin", which=lambda _n: "/usr/bin/llama-server")
-    assert found == in_bin
+def test_finds_every_build_in_bin_dir(tmp_path: Path) -> None:
+    cpu = _make_file(tmp_path / "bin" / "cpu" / server_executable_name())
+    vulkan = _make_file(tmp_path / "bin" / "vulkan" / server_executable_name())
+    flat = _make_file(tmp_path / "bin" / server_executable_name())
+    (tmp_path / "bin" / "empty").mkdir()
+    builds = find_server_builds(None, tmp_path / "bin", which=lambda _n: "/usr/bin/llama-server")
+    assert builds == [
+        ServerBuild("cpu", cpu),
+        ServerBuild("vulkan", vulkan),
+        ServerBuild("default", flat),
+    ]
 
 
 def test_falls_back_to_path(tmp_path: Path) -> None:
-    found = find_llama_server(
+    builds = find_server_builds(
         tmp_path / "missing", tmp_path / "bin", which=lambda _n: "/opt/llama-server"
     )
-    assert found == Path("/opt/llama-server")
+    assert builds == [ServerBuild("path", Path("/opt/llama-server"))]
 
 
 def test_not_found_has_friendly_message(tmp_path: Path) -> None:
     with pytest.raises(LlamaServerNotFoundError) as info:
-        find_llama_server(None, tmp_path / "bin", which=lambda _n: None)
+        find_server_builds(None, tmp_path / "bin", which=lambda _n: None)
     message = str(info.value)
     assert "llama-server" in message
     assert str(tmp_path / "bin") in message

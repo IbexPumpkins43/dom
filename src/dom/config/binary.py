@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,27 +40,45 @@ def configured_server_path() -> Path | None:
     return Path(value) if value else None
 
 
-def find_llama_server(
+@dataclass(frozen=True, slots=True)
+class ServerBuild:
+    """One installed llama-server build, e.g. ``cpu`` or ``vulkan``."""
+
+    name: str
+    path: Path
+
+
+def find_server_builds(
     configured: Path | None,
     bin_dir: Path,
     which: Callable[[str], str | None] = shutil.which,
-) -> Path:
-    """Locate llama-server: the configured path, then ``bin_dir``, then ``PATH``.
+) -> list[ServerBuild]:
+    """Locate llama-server builds.
+
+    Order: the configured path (used alone if set and present); otherwise every
+    ``bin_dir/<name>/llama-server`` plus ``bin_dir/llama-server``; otherwise ``PATH``.
 
     Raises:
-        LlamaServerNotFoundError: if none of those has it.
+        LlamaServerNotFoundError: if no build is found anywhere.
     """
+    exe = server_executable_name()
     searched: list[str] = []
     if configured is not None:
         searched.append(str(configured))
         if configured.is_file():
-            return configured
-    in_bin = bin_dir / server_executable_name()
-    searched.append(str(in_bin))
-    if in_bin.is_file():
-        return in_bin
+            return [ServerBuild("configured", configured)]
+    builds: list[ServerBuild] = []
+    if bin_dir.is_dir():
+        for sub in sorted(p for p in bin_dir.iterdir() if p.is_dir()):
+            if (sub / exe).is_file():
+                builds.append(ServerBuild(sub.name, sub / exe))
+    if (bin_dir / exe).is_file():
+        builds.append(ServerBuild("default", bin_dir / exe))
+    searched.append(str(bin_dir / exe))
+    if builds:
+        return builds
     searched.append(f"{SERVER_STEM} on PATH")
     on_path = which(SERVER_STEM)
     if on_path is not None:
-        return Path(on_path)
+        return [ServerBuild("path", Path(on_path))]
     raise LlamaServerNotFoundError(searched, bin_dir)

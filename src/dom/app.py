@@ -23,9 +23,9 @@ from dom.config import (
     LlamaServerNotFoundError,
     configured_server_path,
     default_paths,
+    find_server_builds,
     is_dev_mode,
 )
-from dom.config import find_llama_server as locate_server
 from dom.storage import SqliteConversationRepository, StorageError
 from dom.ui.controller import ChatController, spawn
 from dom.ui.main_window import MainWindow
@@ -60,7 +60,8 @@ def build_service(paths: AppPaths, settings: InferenceSettings) -> InferenceServ
 
     def create() -> InferenceService:
         try:
-            binary = locate_server(configured_server_path(), paths.bin_dir)
+            builds = find_server_builds(configured_server_path(), paths.bin_dir)
+            binary = next((b.path for b in builds if b.name == "cpu"), builds[0].path)
         except LlamaServerNotFoundError as exc:
             logger.warning("llama-server not found; searched: %s", ", ".join(exc.searched))
             raise ServerStartError(str(exc)) from exc

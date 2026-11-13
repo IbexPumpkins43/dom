@@ -18,7 +18,7 @@ from dom.config.binary import server_executable_name
 from dom.domain import ChatMessage, ModelStatus, Role
 
 DEV_DIR = Path(__file__).resolve().parents[2] / ".dev"
-BINARY = DEV_DIR / "bin" / server_executable_name()
+BINARY = DEV_DIR / "bin" / "cpu" / server_executable_name()
 MODELS_DIR = DEV_DIR / "models"
 Q4 = "Qwen3.5-0.8B-Q4_K_M"
 Q8 = "Qwen3.5-0.8B-Q8_0"

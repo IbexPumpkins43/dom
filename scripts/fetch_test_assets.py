@@ -2,8 +2,9 @@
 
 Fetches two things, and nothing else:
 
-1. The ``llama-server`` CPU build for this OS/CPU from the ggml-org/llama.cpp GitHub releases,
-   unpacked into ``.dev/bin/`` with the release tag written to ``.dev/bin/VERSION``.
+1. The ``llama-server`` CPU and Vulkan (GPU) builds for this OS/CPU from the ggml-org/llama.cpp
+   GitHub releases, unpacked into ``.dev/bin/cpu/`` and ``.dev/bin/vulkan/`` with the release tag
+   written to ``VERSION`` in each.
 2. The Q4_K_M and Q8_0 quants of ``unsloth/Qwen3.5-0.8B-GGUF`` from Hugging Face, into
    ``.dev/models/``.
 
@@ -67,7 +68,7 @@ class FetchError(Exception):
 
 
 class Target(StrEnum):
-    """Platforms we know how to pick a llama.cpp CPU build for."""
+    """Platforms we know how to pick llama.cpp builds for."""
 
     LINUX_X64 = "linux-x64"
     LINUX_ARM64 = "linux-arm64"
@@ -75,12 +76,25 @@ class Target(StrEnum):
     WINDOWS_ARM64 = "windows-arm64"
 
 
-# The llama.cpp asset name suffix (after "llama-<tag>-bin-") for each target's CPU build.
-ASSET_PATTERNS: dict[Target, re.Pattern[str]] = {
-    Target.LINUX_X64: re.compile(r"^llama-[^-]+-bin-ubuntu-x64\.tar\.gz$"),
-    Target.LINUX_ARM64: re.compile(r"^llama-[^-]+-bin-ubuntu-arm64\.tar\.gz$"),
-    Target.WINDOWS_X64: re.compile(r"^llama-[^-]+-bin-win-cpu-x64\.zip$"),
-    Target.WINDOWS_ARM64: re.compile(r"^llama-[^-]+-bin-win-cpu-arm64\.zip$"),
+class Variant(StrEnum):
+    """llama.cpp builds we install; each goes into ``.dev/bin/<variant>/``."""
+
+    CPU = "cpu"
+    VULKAN = "vulkan"
+
+
+# Release asset names for each target and build variant.
+ASSET_PATTERNS: dict[tuple[Target, Variant], re.Pattern[str]] = {
+    (Target.LINUX_X64, Variant.CPU): re.compile(r"^llama-[^-]+-bin-ubuntu-x64\.tar\.gz$"),
+    (Target.LINUX_ARM64, Variant.CPU): re.compile(r"^llama-[^-]+-bin-ubuntu-arm64\.tar\.gz$"),
+    (Target.WINDOWS_X64, Variant.CPU): re.compile(r"^llama-[^-]+-bin-win-cpu-x64\.zip$"),
+    (Target.WINDOWS_ARM64, Variant.CPU): re.compile(r"^llama-[^-]+-bin-win-cpu-arm64\.zip$"),
+    (Target.LINUX_X64, Variant.VULKAN): re.compile(r"^llama-[^-]+-bin-ubuntu-vulkan-x64\.tar\.gz$"),
+    (Target.LINUX_ARM64, Variant.VULKAN): re.compile(
+        r"^llama-[^-]+-bin-ubuntu-vulkan-arm64\.tar\.gz$"
+    ),
+    (Target.WINDOWS_X64, Variant.VULKAN): re.compile(r"^llama-[^-]+-bin-win-vulkan-x64\.zip$"),
+    (Target.WINDOWS_ARM64, Variant.VULKAN): re.compile(r"^llama-[^-]+-bin-win-vulkan-arm64\.zip$"),
 }
 
 
@@ -96,8 +110,9 @@ class RemoteFile:
 
 @dataclass(frozen=True, slots=True)
 class BinaryRelease:
-    """The llama.cpp release we install, and its CPU-build archive for this platform."""
+    """The llama.cpp release we install, and one build's archive for this platform."""
 
+    variant: Variant
     version_label: str
     asset: RemoteFile
 
@@ -194,28 +209,41 @@ def _asset_to_remote(asset: dict[str, object]) -> RemoteFile:
     )
 
 
-def find_binary_release(client: httpx.Client, target: Target) -> BinaryRelease:
-    """Resolve the latest stable llama.cpp release to its CPU-build asset for ``target``."""
+def _pick(assets: list[dict[str, object]], pattern: re.Pattern[str]) -> dict[str, object] | None:
+    matches = [a for a in assets if pattern.match(str(a.get("name", "")))]
+    if len(matches) > 1:
+        raise FetchError(f"Several assets match {pattern.pattern}; refusing to guess.")
+    return matches[0] if matches else None
+
+
+def find_binary_releases(client: httpx.Client, target: Target) -> list[BinaryRelease]:
+    """Resolve the latest stable llama.cpp release to each build variant's asset for ``target``."""
     latest = _as_dict(_get_json(client, f"{GITHUB_API}/releases/latest"), "latest release")
     latest_tag = _as_str(latest.get("tag_name"), "release tag")
-    pattern = ASSET_PATTERNS[target]
-
-    def pick(assets: list[dict[str, object]]) -> dict[str, object] | None:
-        matches = [a for a in assets if pattern.match(str(a.get("name", "")))]
-        if len(matches) > 1:
-            raise FetchError(f"Several assets match {pattern.pattern}; refusing to guess.")
-        return matches[0] if matches else None
-
     assets = _release_assets(latest)
-    direct = pick(assets)
-    if direct is not None:
-        return BinaryRelease(version_label=latest_tag, asset=_asset_to_remote(direct))
+    label = latest_tag
+    if _pick(assets, ASSET_PATTERNS[target, Variant.CPU]) is None:
+        build_tag = _resolve_build_tag(client, assets, latest_tag)
+        build = _as_dict(_get_json(client, f"{GITHUB_API}/releases/tags/{build_tag}"), "build")
+        assets = _release_assets(build)
+        label = f"{latest_tag} ({build_tag})"
+    releases: list[BinaryRelease] = []
+    for variant in Variant:
+        chosen = _pick(assets, ASSET_PATTERNS[target, variant])
+        if chosen is None:
+            raise FetchError(f"Release {label} has no {variant} build for {target}.")
+        releases.append(
+            BinaryRelease(variant=variant, version_label=label, asset=_asset_to_remote(chosen))
+        )
+    return releases
 
+
+def _resolve_build_tag(
+    client: httpx.Client, assets: list[dict[str, object]], latest_tag: str
+) -> str:
     pointer = next((a for a in assets if a.get("name") == BUILD_TAG_ASSET), None)
     if pointer is None:
-        raise FetchError(
-            f"Release {latest_tag} has no {target} CPU build and no {BUILD_TAG_ASSET} pointer."
-        )
+        raise FetchError(f"Release {latest_tag} has no binaries and no {BUILD_TAG_ASSET} pointer.")
     pointer_url = _as_str(pointer.get("browser_download_url"), BUILD_TAG_ASSET)
     try:
         response = client.get(pointer_url)
@@ -225,14 +253,7 @@ def find_binary_release(client: httpx.Client, target: Target) -> BinaryRelease:
     build_tag = response.text.strip()
     if not re.fullmatch(r"b\d+", build_tag):
         raise FetchError(f"{BUILD_TAG_ASSET} has an unexpected build tag: {build_tag!r}.")
-
-    build = _as_dict(_get_json(client, f"{GITHUB_API}/releases/tags/{build_tag}"), "build")
-    chosen = pick(_release_assets(build))
-    if chosen is None:
-        raise FetchError(f"Build {build_tag} has no CPU build for {target}.")
-    return BinaryRelease(
-        version_label=f"{latest_tag} ({build_tag})", asset=_asset_to_remote(chosen)
-    )
+    return build_tag
 
 
 def find_model_files(client: httpx.Client) -> list[RemoteFile]:
@@ -384,7 +405,8 @@ def _server_binary_name() -> str:
 
 
 def install_binary(archive: Path, release: BinaryRelease) -> None:
-    """Unpack the archive into ``.dev/bin/`` (flattening one top-level folder) and pin VERSION."""
+    """Unpack into ``.dev/bin/<variant>/`` (flattening one top-level folder) and pin VERSION."""
+    dest = BIN_DIR / release.variant
     with tempfile.TemporaryDirectory(dir=DEV_DIR, prefix="bin-") as tmp:
         staging = Path(tmp) / "unpacked"
         staging.mkdir()
@@ -394,15 +416,17 @@ def install_binary(archive: Path, release: BinaryRelease) -> None:
         if not (content_root / _server_binary_name()).exists():
             raise FetchError(f"{_server_binary_name()} not found in {archive.name}.")
         (content_root / "VERSION").write_text(release.version_label + "\n", encoding="utf-8")
-        if BIN_DIR.exists():
-            shutil.rmtree(BIN_DIR)
-        content_root.rename(BIN_DIR)
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        content_root.rename(dest)
 
 
 def binary_is_current(release: BinaryRelease) -> bool:
-    """True if ``.dev/bin`` already holds this release (VERSION is written last)."""
-    version_file = BIN_DIR / "VERSION"
-    if not version_file.exists() or not (BIN_DIR / _server_binary_name()).exists():
+    """True if ``.dev/bin/<variant>`` already holds this release (VERSION is written last)."""
+    dest = BIN_DIR / release.variant
+    version_file = dest / "VERSION"
+    if not version_file.exists() or not (dest / _server_binary_name()).exists():
         return False
     return version_file.read_text(encoding="utf-8").strip() == release.version_label
 
@@ -412,20 +436,23 @@ def binary_is_current(release: BinaryRelease) -> bool:
 # --------------------------------------------------------------------------------------------
 
 
-def fetch_binary(client: httpx.Client, target: Target) -> None:
-    """Make sure ``.dev/bin`` holds the latest stable llama-server CPU build."""
-    release = find_binary_release(client, target)
-    logger.info("llama.cpp release: %s, asset %s", release.version_label, release.asset.name)
-    if binary_is_current(release):
-        logger.info("llama-server %s already installed, skipping.", release.version_label)
-        return
-    downloads = DEV_DIR / "downloads"
-    archive = downloads / release.asset.name
-    if not (archive.exists() and sha256_of(archive) == release.asset.sha256):
-        download_verified(client, release.asset, archive)
-    install_binary(archive, release)
-    archive.unlink()
-    logger.info("Installed llama-server %s into %s", release.version_label, BIN_DIR)
+def fetch_binaries(client: httpx.Client, target: Target) -> None:
+    """Make sure ``.dev/bin/<variant>`` holds each llama-server build of the latest release."""
+    if (BIN_DIR / "VERSION").exists():
+        logger.info("Removing the old single-build layout in %s", BIN_DIR)
+        shutil.rmtree(BIN_DIR)
+    for release in find_binary_releases(client, target):
+        label = f"{release.variant} build {release.version_label}"
+        logger.info("llama.cpp %s: %s", label, release.asset.name)
+        if binary_is_current(release):
+            logger.info("llama-server %s already installed, skipping.", label)
+            continue
+        archive = DEV_DIR / "downloads" / release.asset.name
+        if not (archive.exists() and sha256_of(archive) == release.asset.sha256):
+            download_verified(client, release.asset, archive)
+        install_binary(archive, release)
+        archive.unlink()
+        logger.info("Installed llama-server %s into %s", label, BIN_DIR / release.variant)
 
 
 def _verified_marker(path: Path) -> Path:
@@ -476,7 +503,7 @@ def main() -> int:
         DEV_DIR.mkdir(exist_ok=True)
         headers = {"User-Agent": USER_AGENT}
         with httpx.Client(headers=headers, follow_redirects=True, timeout=TIMEOUT) as client:
-            fetch_binary(client, target)
+            fetch_binaries(client, target)
             fetch_models(client)
     except FetchError as exc:
         logger.error("Error: %s", exc)
