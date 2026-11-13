@@ -1,13 +1,23 @@
-"""Images shipped with dom (package data, so they are found in packaged builds too)."""
+"""Images and fonts shipped with dom (package data, so they are found in packaged builds too)."""
 
 from __future__ import annotations
 
+import logging
 from importlib.resources import files
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QFontDatabase, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication
+
+logger = logging.getLogger(__name__)
+
+# Figtree (SIL Open Font License 1.1, assets/fonts/OFL.txt): static Regular, Medium, SemiBold,
+# Bold, Italic and Bold Italic cut from the variable font, which Qt handles unevenly per platform.
+UI_FONT_FAMILY = "Figtree"
 LOGO_FILE = "logo.svg"
 LOGO_COLOUR = "#FF7A4D"  # the fill in logo.svg (Brasa base09)
 
@@ -39,3 +49,31 @@ def render_logo(
     painter.end()
     pixmap.setDevicePixelRatio(device_pixel_ratio)
     return pixmap
+
+
+def load_fonts() -> set[str]:
+    """Register the fonts shipped with dom with Qt; return their family names."""
+    families: set[str] = set()
+    for entry in files("dom.ui").joinpath("assets", "fonts").iterdir():
+        if not entry.name.endswith(".ttf"):
+            continue
+        font_id = QFontDatabase.addApplicationFontFromData(QByteArray(entry.read_bytes()))
+        if font_id < 0:
+            logger.warning("Could not load the font %s", entry.name)
+            continue
+        families.update(QFontDatabase.applicationFontFamilies(font_id))
+    return families
+
+
+def use_ui_font(app: QApplication) -> bool:
+    """Make Figtree the font of every widget (keeping the system's font size).
+
+    Returns False (and keeps the system font) if it could not be loaded.
+    """
+    if UI_FONT_FAMILY not in load_fonts():
+        logger.warning("The %s font could not be loaded; using the system font", UI_FONT_FAMILY)
+        return False
+    font = app.font()
+    font.setFamilies([UI_FONT_FAMILY])
+    app.setFont(font)
+    return True

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QPalette, QStandardItemModel
+from PySide6.QtGui import QColor, QFontDatabase, QPalette, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -32,7 +32,7 @@ from dom.domain import (
 from dom.hardware import MemoryStatus, SystemUsage
 from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
-from dom.ui.assets import logo_svg, render_logo
+from dom.ui.assets import UI_FONT_FAMILY, load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
 from dom.ui.main_window import MainWindow
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog, avatar_pixmap
@@ -346,4 +346,11 @@ def test_logo_can_be_recoloured(qt_app: QApplication) -> None:
         if image.pixelColor(x, y).alpha() == 255  # noqa: PLR2004
     }
     assert colours == {"#00ff00"}
+    assert qt_app is not None
+
+
+def test_figtree_is_bundled_in_every_weight(qt_app: QApplication) -> None:
+    assert UI_FONT_FAMILY in load_fonts()
+    styles = set(QFontDatabase.styles(UI_FONT_FAMILY))
+    assert {"Regular", "Medium", "SemiBold", "Bold", "Italic", "Bold Italic"} <= styles
     assert qt_app is not None

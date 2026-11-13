@@ -140,10 +140,14 @@ def write_notices(app_dir: Path, engine: Path) -> None:
     # PySide6/shiboken6 wheels ship no licence file; they are LGPL-3.0 (which builds on GPL-3.0).
     for text in ("LGPL-3.0.txt", "GPL-3.0.txt"):
         shutil.copyfile(ROOT / "packaging" / "licenses" / text, notices / f"PySide6-Qt-{text}")
+    shutil.copyfile(
+        ROOT / "src" / "dom" / "ui" / "assets" / "fonts" / "OFL.txt", notices / "Figtree-OFL.txt"
+    )
     (notices / "README.txt").write_text(
         "dom is MIT-licensed. It bundles llama.cpp (MIT), Qt for Python / PySide6 (LGPLv3; the\n"
-        "Qt libraries are shipped as separate, replaceable shared libraries), Python (PSF) and\n"
-        "the Python packages whose licences are in this folder.\n",
+        "Qt libraries are shipped as separate, replaceable shared libraries), Python (PSF), the\n"
+        "Figtree font (SIL Open Font License 1.1) and the Python packages whose licences are in\n"
+        "this folder. The dom logo is drawn from the Climate Crisis font (SIL OFL 1.1).\n",
         encoding="utf-8",
     )
 

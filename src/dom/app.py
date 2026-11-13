@@ -36,6 +36,7 @@ from dom.hardware.probe import read_memory, read_usage
 from dom.selftest import run_self_test
 from dom.storage import SqliteStore, StorageError
 from dom.tuning import BenchmarkCache, LlamaBench
+from dom.ui.assets import use_ui_font
 from dom.ui.controller import ChatController, spawn
 from dom.ui.dialogs import show_message
 from dom.ui.library import LibraryController
@@ -177,6 +178,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("dom")
+    use_ui_font(app)
     apply_theme(app)
     # The window closes itself only after the server is stopped (see MainWindow.closeEvent).
     app.setQuitOnLastWindowClosed(False)
