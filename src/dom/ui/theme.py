@@ -104,7 +104,7 @@ def build_stylesheet(t: Base16) -> str:
     return f"""
 QToolTip {{ background: {t.base01}; color: {t.base05}; border: 1px solid {t.base03}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; }}
-QScrollBar::handle:vertical {{ background: {t.base02}; border-radius: 5px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {t.base02}; border-radius: 3px; min-height: 30px; }}
 QScrollBar::handle:vertical:hover {{ background: {t.base03}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
@@ -113,7 +113,7 @@ QPushButton {{
     background: {t.base01};
     color: {t.base05};
     border: 1px solid {t.base02};
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 6px 12px;
 }}
 QPushButton:hover {{ background: {t.base02}; }}
@@ -133,7 +133,7 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #newChat {{ text-align: left; background: {t.base00}; padding: 8px 12px; }}
 #newChat:hover {{ background: {t.base02}; }}
 #conversationList {{ background: transparent; outline: none; border: none; }}
-#conversationList::item {{ border-radius: 6px; }}
+#conversationList::item {{ border-radius: 3px; }}
 #conversationList::item:hover {{ background: {t.base02}; }}
 #conversationList::item:selected {{ background: {t.base02}; }}
 #conversationTitle {{ color: {t.base05}; }}
@@ -150,7 +150,7 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
     background: {t.base01};
     color: {t.base05};
     border: 1px solid {t.base02};
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 5px 10px;
 }}
 #modelPicker:hover {{ border-color: {t.base03}; }}
@@ -167,9 +167,9 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #banner {{ background: {t.base01}; border-bottom: 1px solid {t.base02}; color: {t.base05}; }}
 #banner[error="true"] {{ background: {t.base02}; border-bottom: 1px solid {t.base08}; }}
 
-#chatArea, #chatCanvas {{ background: {t.base00}; }}
+#chatPane, #chatArea, #chatCanvas {{ background: {t.base00}; }}
 #notice {{ color: {t.base04}; font-size: 15px; padding: 60px 20px; }}
-#userBubble {{ background: {t.base02}; border: none; border-radius: 14px; color: {t.base06}; }}
+#userBubble {{ background: {t.base02}; border: none; border-radius: 6px; color: {t.base06}; }}
 #assistantBubble {{ background: transparent; color: {t.base05}; }}
 #thinkingToggle {{
     border: none;
@@ -188,7 +188,7 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 #composer {{
     background: {t.base01};
     border: 1px solid {t.base03};
-    border-radius: 14px;
+    border-radius: 6px;
 }}
 #composer[focused="true"] {{ border-color: {t.base09}; }}
 #chatInput {{
@@ -200,7 +200,7 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 }}
 #sendButton {{
     padding: 7px 18px;
-    border-radius: 10px;
+    border-radius: 5px;
     background: {t.base09};
     color: {t.base00};
     border: none;
@@ -213,13 +213,13 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
 
 QDialog {{ background: {t.base00}; }}
 #dialogHeading {{ font-size: 18px; font-weight: 600; color: {t.base06}; }}
-#modelRow {{ border: 1px solid {t.base02}; border-radius: 10px; background: {t.base01}; }}
+#modelRow {{ border: 1px solid {t.base02}; border-radius: 5px; background: {t.base01}; }}
 #modelRowTitle {{ font-weight: 600; font-size: 14px; color: {t.base06}; }}
 #modelRowDetails {{ color: {t.base04}; font-size: 12px; }}
 #badge {{
     background: {t.base09};
     color: {t.base00};
-    border-radius: 6px;
+    border-radius: 3px;
     padding: 1px 6px;
     font-size: 11px;
     font-weight: 600;
@@ -228,11 +228,11 @@ QDialog {{ background: {t.base00}; }}
 QProgressBar {{
     background: {t.base00};
     border: 1px solid {t.base02};
-    border-radius: 6px;
+    border-radius: 3px;
     color: {t.base05};
     text-align: center;
 }}
-QProgressBar::chunk {{ background: {t.base09}; border-radius: 5px; }}
+QProgressBar::chunk {{ background: {t.base09}; border-radius: 3px; }}
 """
 
 

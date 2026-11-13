@@ -129,6 +129,9 @@ class MainWindow(QMainWindow):
         bottom_row.addStretch(1)
 
         main = QWidget()
+        # The whole chat column (messages, message box, model picker) shares the chat's background.
+        main.setObjectName("chatPane")
+        main.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         main_layout = QVBoxLayout(main)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
