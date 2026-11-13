@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from dom.ui.controller import spawn
 from dom.ui.dialogs import Question, ask
+from dom.ui.icons import ICON_SIZE, Icon, make_icon
 from dom.ui.library_dialog import LibraryDialog
 from dom.ui.profile_widgets import ProfileButton, ProfileDialog
 from dom.ui.protocols import ServerState
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
 ERROR_DISPLAY_MS = 10_000
 USAGE_REFRESH_MS = 200
 COMPOSER_MAX_WIDTH = 900
+SIDEBAR_SHORTCUT = "Ctrl+B"
 
 _SERVER_LABELS: dict[ServerState, str] = {
     ServerState.STARTING: "Starting the AI engine…",
@@ -166,7 +169,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         self._profile_button = ProfileButton()
         self._profile_button.hide()  # until the profiles are known
-        self._sidebar.add_bottom_widget(self._profile_button)
+        self._sidebar.set_profile_widget(self._profile_button)
         layout.addWidget(self._sidebar)
         layout.addWidget(main, 1)
         self._frame = WindowFrame(self._build_title_bar(), body)
@@ -174,9 +177,38 @@ class MainWindow(QMainWindow):
 
     def _build_title_bar(self) -> TitleBar:
         self._theme = BRASA
-        self._title_bar = TitleBar(self._theme)
+        # In place of the "dom" name: collapse / expand the sidebar (also Ctrl+B).
+        self._sidebar_toggle = QPushButton()
+        self._sidebar_toggle.setObjectName("sidebarToggle")
+        self._sidebar_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sidebar_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._sidebar_toggle.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        self._sidebar_toggle.clicked.connect(self.toggle_sidebar)
+        QShortcut(QKeySequence(SIDEBAR_SHORTCUT), self).activated.connect(self.toggle_sidebar)
+        self._title_bar = TitleBar(self._theme, leading=self._sidebar_toggle)
         self._title_bar.set_title("New chat")
+        self._set_icon_colour(self._theme.base05)
+        self._update_sidebar_toggle()
         return self._title_bar
+
+    def toggle_sidebar(self) -> None:
+        """Switch the sidebar between full and icons-only."""
+        compact = not self._sidebar.is_compact()
+        self._sidebar.set_compact(compact)
+        self._profile_button.set_compact(compact)
+        self._update_sidebar_toggle()
+
+    def sidebar_toggle(self) -> QPushButton:
+        """The collapse / expand button in the title bar."""
+        return self._sidebar_toggle
+
+    def _update_sidebar_toggle(self) -> None:
+        action = "Expand" if self._sidebar.is_compact() else "Collapse"
+        self._sidebar_toggle.setToolTip(f"{action} the sidebar ({SIDEBAR_SHORTCUT})")
+
+    def _set_icon_colour(self, colour: str) -> None:
+        self._sidebar_toggle.setIcon(make_icon(Icon.SIDEBAR, colour))
+        self._sidebar.set_icon_colour(colour)
 
     def attach(
         self,
@@ -313,6 +345,7 @@ class MainWindow(QMainWindow):
         if isinstance(app, QApplication):
             apply_theme(app, theme)
         self._chat.set_logo_colour(theme.base09)
+        self._set_icon_colour(theme.base05)
 
     def profile_button(self) -> ProfileButton:
         """The profile switcher at the bottom of the sidebar."""

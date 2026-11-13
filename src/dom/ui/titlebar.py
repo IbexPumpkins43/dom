@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 TITLE_BAR_HEIGHT = 36
 RESIZE_MARGIN = 5
+LEADING_MARGIN = 10
 _BUTTON_SIZE = QSize(46, TITLE_BAR_HEIGHT)
 _GLYPH = 10  # size of the drawn button symbols, in pixels
 
@@ -104,11 +105,17 @@ class TitleBar(QWidget):
     """The top bar: app name, current chat title and the window buttons. Drag it to move."""
 
     def __init__(
-        self, theme: Base16, parent: QWidget | None = None, *, maximizable: bool = True
+        self,
+        theme: Base16,
+        parent: QWidget | None = None,
+        *,
+        maximizable: bool = True,
+        leading: QWidget | None = None,
     ) -> None:
         """Create the bar (it acts on the top-level window it ends up in).
 
-        ``maximizable=False`` (dialogs) shows only the close button.
+        ``maximizable=False`` (dialogs) shows only the close button. ``leading`` (e.g. the main
+        window's sidebar button) takes the place of the "dom" name on the left.
         """
         super().__init__(parent)
         self._maximizable = maximizable
@@ -116,11 +123,16 @@ class TitleBar(QWidget):
         self.setFixedHeight(TITLE_BAR_HEIGHT)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 0, 0)
         layout.setSpacing(0)
-        name = QLabel("dom")
-        name.setObjectName("titleBarName")
-        layout.addWidget(name)
+        if leading is None:
+            layout.setContentsMargins(14, 0, 0, 0)
+            name = QLabel("dom")
+            name.setObjectName("titleBarName")
+            layout.addWidget(name)
+        else:
+            # Lines up with the sidebar's icon buttons, which sit 10 px from the edge.
+            layout.setContentsMargins(LEADING_MARGIN, 0, 0, 0)
+            layout.addWidget(leading)
         self._title = ElidedLabel()
         self._title.setObjectName("titleBarTitle")
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)

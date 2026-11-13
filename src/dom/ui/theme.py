@@ -194,6 +194,20 @@ QPushButton:disabled {{ color: {t.base03}; border-color: {t.base01}; }}
     font-weight: 600;
 }}
 #profileButton:hover, #profileButton:pressed {{ background: {t.base02}; }}
+#profileButton[compact="true"] {{ text-align: center; padding: 6px 0; }}
+#profileRow {{ border-top: 1px solid {t.base02}; }}
+#sidebarIconButton, #sidebarToggle {{
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 0;
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 32px;
+    max-height: 32px;
+}}
+#sidebarIconButton:hover, #sidebarToggle:hover {{ background: {t.base02}; }}
+#sidebarToggle {{ min-height: 28px; max-height: 28px; }}
 QMenu {{ background: {t.base01}; color: {t.base05}; border: 1px solid {t.base03}; padding: 4px; }}
 QMenu::item {{ padding: 6px 18px 6px 8px; border-radius: 3px; }}
 QMenu::item:selected {{ background: {t.base02}; }}
@@ -206,7 +220,8 @@ QMenu::separator {{ height: 1px; background: {t.base02}; margin: 4px 2px; }}
     font-weight: 600;
     padding: 6px 4px 0 4px;
 }}
-#newChat {{ text-align: left; background: {t.base00}; padding: 8px 12px; }}
+#newChat {{ text-align: left; background: {t.base00}; padding: 8px 10px; }}
+#newChat[compact="true"] {{ text-align: center; padding: 8px 0; }}
 #newChat:hover {{ background: {t.base02}; }}
 #conversationList {{ background: transparent; outline: none; border: none; }}
 #conversationList::item {{ border-radius: 3px; }}

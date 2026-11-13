@@ -36,6 +36,7 @@ from dom.hardware.models import GIB
 from dom.hardware.probe import read_usage
 from dom.ui.assets import load_fonts, logo_svg, render_logo
 from dom.ui.dialogs import FramedDialog, Question, ask
+from dom.ui.icons import Icon, icon_svg, make_icon
 from dom.ui.main_window import MainWindow
 from dom.ui.profile_widgets import (
     BUTTON_NAME_MAX_CHARS,
@@ -52,7 +53,14 @@ from dom.ui.theme import (
     tinted,
 )
 from dom.ui.titlebar import TitleBar, edges_at
-from dom.ui.widgets import ChatArea, ModelPicker, Sidebar, UsagePanel
+from dom.ui.widgets import (
+    SIDEBAR_COMPACT_WIDTH,
+    SIDEBAR_WIDTH,
+    ChatArea,
+    ModelPicker,
+    Sidebar,
+    UsagePanel,
+)
 
 
 @pytest.fixture(scope="module")
@@ -269,11 +277,61 @@ def test_profile_button_is_at_the_bottom_of_the_sidebar(qt_app: QApplication) ->
     sidebar = window.findChild(Sidebar)
     assert sidebar is not None
     button = window.profile_button()
-    assert button.parentWidget() is sidebar
-    usage_bottom = sidebar.usage.geometry().bottom()
-    assert button.geometry().top() > usage_bottom  # under the CPU/memory panel
-    assert sidebar.height() - button.geometry().bottom() < 20  # noqa: PLR2004 -- at the bottom
+    assert sidebar.isAncestorOf(button)
+    top_left = button.mapTo(sidebar, button.rect().topLeft())
+    bottom = button.mapTo(sidebar, button.rect().bottomLeft()).y()
+    assert top_left.y() > sidebar.usage.geometry().bottom()  # under the CPU/memory panel
+    assert sidebar.height() - bottom < 20  # noqa: PLR2004 -- at the bottom
+    settings = sidebar.settings_button
+    assert settings.mapTo(sidebar, settings.rect().topLeft()).x() > top_left.x()  # beside it
     window.close()
+
+
+def test_compact_sidebar_shows_icons_only(qt_app: QApplication) -> None:
+    window = MainWindow(on_closed=lambda: None)
+    home = _profile("p1", "Home", ProfileColour.ORANGE)
+    window.show_profiles([home], home)
+    window.resize(1000, 700)
+    window.show()
+    sidebar = window.findChild(Sidebar)
+    assert sidebar is not None
+    button = window.profile_button()
+    assert "Collapse" in window.sidebar_toggle().toolTip()
+
+    window.sidebar_toggle().click()
+    qt_app.processEvents()
+    assert sidebar.is_compact()
+    assert sidebar.width() == SIDEBAR_COMPACT_WIDTH
+    assert button.text() == ""
+    chat_list = sidebar.findChild(QListWidget, "conversationList")
+    assert chat_list is not None
+    assert not chat_list.isVisible()
+    buttons = [b for b in sidebar.findChildren(QPushButton) if b.isVisible()]
+    assert all(b.text() == "" and not b.icon().isNull() for b in buttons)
+    assert "Expand" in window.sidebar_toggle().toolTip()
+
+    QTest.keyClick(window, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)  # Ctrl+B
+    qt_app.processEvents()
+    assert not sidebar.is_compact()
+    assert sidebar.width() == SIDEBAR_WIDTH
+    assert button.text() == "Home"
+    window.close()
+
+
+def test_main_window_title_bar_has_the_sidebar_button_not_the_name(qt_app: QApplication) -> None:
+    window = MainWindow(on_closed=lambda: None)
+    names = [label.text() for label in window.findChildren(QLabel, "titleBarName")]
+    assert names == []
+    dialog = FramedDialog("Dialog")  # dialogs keep the name
+    assert [label.text() for label in dialog.findChildren(QLabel, "titleBarName")] == ["dom"]
+    assert qt_app is not None
+
+
+def test_icons_render_in_the_given_colour(qt_app: QApplication) -> None:
+    for name in Icon:
+        assert 'stroke="#123456"' in icon_svg(name, "#123456")
+        assert not make_icon(name, "#123456").isNull()
+    assert qt_app is not None
 
 
 def test_avatar_is_a_coloured_circle(qt_app: QApplication) -> None:

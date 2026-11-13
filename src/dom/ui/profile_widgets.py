@@ -93,8 +93,18 @@ class ProfileButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._menu = QMenu(self)
+        self._name = ""
+        self._compact = False
         self.clicked.connect(self.show_menu)
         self.setToolTip("Profiles")
+
+    def set_compact(self, compact: bool) -> None:
+        """Compact: the avatar only (the name is in the tooltip)."""
+        self._compact = compact
+        self.setText("" if compact else _short(self._name))
+        self.setProperty("compact", compact)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def profile_menu(self) -> QMenu:
         """The menu of profiles and profile actions."""
@@ -120,7 +130,8 @@ class ProfileButton(QPushButton):
     def set_profiles(self, profiles: Sequence[Profile], current: Profile) -> None:
         """Show ``current`` on the button and every profile in the menu."""
         self.setIcon(QIcon(avatar_pixmap(current.settings, AVATAR_SIZE)))
-        self.setText(_short(current.name))
+        self._name = current.name
+        self.setText("" if self._compact else _short(current.name))
         self.setToolTip(f"Profile: {current.name}")
         menu = self._menu
         menu.clear()

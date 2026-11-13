@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -27,6 +28,8 @@ from PySide6.QtWidgets import (
 from dom.domain import ModelStatus, Role
 from dom.hardware.models import GIB
 from dom.ui.assets import LOGO_COLOUR, render_logo
+from dom.ui.icons import ICON_SIZE, Icon, make_icon
+from dom.ui.theme import BRASA
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -41,7 +44,9 @@ if TYPE_CHECKING:
 REPLY_REDRAW_MS = 50
 INPUT_MAX_LINES = 8
 SIDEBAR_WIDTH = 260
+SIDEBAR_COMPACT_WIDTH = 56  # 10 px margins around 36 px icon buttons
 USAGE_BAR_HEIGHT = 4
+SETTINGS_ICON_SIZE = 20
 LOGO_WIDTH = 260
 LOGO_OPACITY = 0.16
 USAGE_HIGH_PERCENT = 85
@@ -397,12 +402,17 @@ class UsagePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 10, 4, 2)
         layout.setSpacing(4)
+        self._texts: list[QLabel] = []
         self.cpu_text, self.cpu_bar = self._row(layout, "CPU", "cpuBar")
         layout.addSpacing(4)
         self.memory_text, self.memory_bar = self._row(layout, "Memory", "memoryBar")
 
-    @staticmethod
-    def _row(layout: QVBoxLayout, name: str, bar_name: str) -> tuple[QLabel, QProgressBar]:
+    def set_compact(self, compact: bool) -> None:
+        """Compact: only the two bars (the tooltip still has the numbers)."""
+        for text in self._texts:
+            text.setVisible(not compact)
+
+    def _row(self, layout: QVBoxLayout, name: str, bar_name: str) -> tuple[QLabel, QProgressBar]:
         line = QHBoxLayout()
         label = QLabel(name)
         label.setObjectName("usageLabel")
@@ -412,6 +422,7 @@ class UsagePanel(QWidget):
         line.addWidget(label)
         line.addWidget(value, 1)
         layout.addLayout(line)
+        self._texts += [label, value]
         bar = QProgressBar()
         bar.setObjectName(bar_name)
         bar.setRange(0, 100)
@@ -442,7 +453,8 @@ class UsagePanel(QWidget):
 
 
 class Sidebar(QFrame):
-    """Past conversations (newest first), New chat and Get models."""
+    """Past conversations (newest first), New chat and Get models; CPU/memory, the profile
+    and settings at the bottom. In compact mode it is a narrow column of icons."""
 
     new_chat_requested = Signal()
     get_models_requested = Signal()
@@ -457,17 +469,18 @@ class Sidebar(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 12)
         layout.setSpacing(10)
-        self._new_chat = QPushButton("+  New chat")
+        self._compact = False
+        self._new_chat = QPushButton("New chat")
         self._new_chat.setObjectName("newChat")
         self._new_chat.clicked.connect(self.new_chat_requested.emit)
         layout.addWidget(self._new_chat)
-        self._get_models = QPushButton("↓  Get models")
+        self._get_models = QPushButton("Get models")
         self._get_models.setObjectName("newChat")
         self._get_models.clicked.connect(self.get_models_requested.emit)
         layout.addWidget(self._get_models)
-        heading = QLabel("Chats")
-        heading.setObjectName("sidebarHeading")
-        layout.addWidget(heading)
+        self._heading = QLabel("Chats")
+        self._heading.setObjectName("sidebarHeading")
+        layout.addWidget(self._heading)
         self._list = QListWidget()
         self._list.setObjectName("conversationList")
         self._list.setFrameShape(QFrame.Shape.NoFrame)
@@ -477,14 +490,64 @@ class Sidebar(QFrame):
         self._list.customContextMenuRequested.connect(self._show_context_menu)
         self._list.itemClicked.connect(self._on_clicked)
         layout.addWidget(self._list, 1)
+        # Fills the gap in compact mode, where the chat list is hidden.
+        self._spacer = QWidget()
+        self._spacer.hide()
+        layout.addWidget(self._spacer, 1)
         self.usage = UsagePanel()
         layout.addWidget(self.usage)
-        self._layout = layout
+        # The profile button (added by the window) and settings, under a separator line.
+        self._profile_row = QWidget()
+        self._profile_row.setObjectName("profileRow")
+        self._profile_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._profile_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self._profile_row)
+        self._profile_layout.setContentsMargins(0, 8, 0, 0)
+        self._profile_layout.setSpacing(4)
+        self.settings_button = QPushButton()
+        self.settings_button.setObjectName("sidebarIconButton")
+        self.settings_button.setToolTip("Settings (coming soon)")
+        self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._profile_layout.addWidget(self.settings_button, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._profile_row)
         self._titles: dict[str, str] = {}
+        self.set_icon_colour(BRASA.base05)
+        self.set_compact(False)
 
-    def add_bottom_widget(self, widget: QWidget) -> None:
-        """Add ``widget`` at the very bottom, under the CPU/memory panel (the profile button)."""
-        self._layout.addWidget(widget)
+    def set_profile_widget(self, widget: QWidget) -> None:
+        """Put ``widget`` (the profile button) at the bottom, left of the settings button."""
+        self._profile_layout.insertWidget(0, widget, 1)
+
+    def set_icon_colour(self, colour: str) -> None:
+        """Draw the sidebar's icons in ``colour`` (follows the theme)."""
+        self._new_chat.setIcon(make_icon(Icon.NEW_CHAT, colour))
+        self._get_models.setIcon(make_icon(Icon.DOWNLOAD, colour))
+        self.settings_button.setIcon(make_icon(Icon.SETTINGS, colour, SETTINGS_ICON_SIZE))
+        for button in (self._new_chat, self._get_models):
+            button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        self.settings_button.setIconSize(QSize(SETTINGS_ICON_SIZE, SETTINGS_ICON_SIZE))
+
+    def is_compact(self) -> bool:
+        """True while only icons are shown."""
+        return self._compact
+
+    def set_compact(self, compact: bool) -> None:
+        """Icons only (narrow) or the full sidebar."""
+        self._compact = compact
+        self.setFixedWidth(SIDEBAR_COMPACT_WIDTH if compact else SIDEBAR_WIDTH)
+        for button, text in ((self._new_chat, "New chat"), (self._get_models, "Get models")):
+            button.setText("" if compact else text)
+            button.setToolTip(text if compact else "")
+            button.setProperty("compact", compact)
+            button.style().unpolish(button)
+            button.style().polish(button)
+        for widget in (self._heading, self._list):
+            widget.setVisible(not compact)
+        self._spacer.setVisible(compact)
+        self.usage.set_compact(compact)
+        self._profile_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight
+        )
 
     def set_conversations(
         self, conversations: Sequence[Conversation], current_id: str | None
