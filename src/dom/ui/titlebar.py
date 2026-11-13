@@ -6,6 +6,7 @@ Moving and resizing are handed to the operating system (``QWindow.startSystemMov
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt
@@ -31,6 +32,7 @@ RESIZE_MARGIN = 5
 LEADING_MARGIN = 10
 _BUTTON_SIZE = QSize(46, TITLE_BAR_HEIGHT)
 _GLYPH = 10  # size of the drawn button symbols, in pixels
+_DIAGONAL_WEIGHT = 1.4  # the close cross's lines, relative to the straight ones
 
 
 class CaptionButton(QAbstractButton):
@@ -74,31 +76,60 @@ class CaptionButton(QAbstractButton):
         colour = palette.color(
             QPalette.ColorRole.Window if closing else QPalette.ColorRole.WindowText
         )
+        self._draw_glyph(painter, colour)
+        painter.end()
+
+    def _draw_glyph(self, painter: QPainter, colour: QColor) -> None:
+        """The symbol, with lines exactly one device pixel wide on the pixel grid.
+
+        Lines between pixels look blurry (a 1.2 px line at 100% scaling covers two pixel rows at
+        half strength), so everything is placed in whole device pixels and converted back.
+        """
+        dpr = self.devicePixelRatioF()
+        line = max(1, round(dpr))  # line width in device pixels
+        centre_offset = 0.5 if line % 2 else 0.0  # odd widths sit on pixel centres
+
+        def at(device_px: int) -> float:
+            return (device_px + centre_offset) / dpr
+
+        size = round(_GLYPH * dpr)
+        left = math.floor((self.width() * dpr - size) / 2)
+        top = math.floor((self.height() * dpr - size) / 2)
+        right, bottom = left + size, top + size
+        gap = max(2, round(2 * dpr))  # offset of the back window in the restore symbol
         pen = QPen(colour)
-        pen.setWidthF(1.2)
+        pen.setWidthF(line / dpr)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         painter.setPen(pen)
-        centre = QPointF(self.width() / 2, self.height() / 2)
-        half = _GLYPH / 2
-        box = QRectF(centre.x() - half, centre.y() - half, _GLYPH, _GLYPH)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # Straight lines on the grid need no smoothing (which would only soften them).
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, self.kind == "close")
         if self.kind == "minimize":
-            painter.drawLine(QPointF(box.left(), centre.y()), QPointF(box.right(), centre.y()))
+            middle = (top + bottom) // 2
+            painter.drawLine(QPointF(at(left), at(middle)), QPointF(at(right), at(middle)))
         elif self.kind == "maximize":
-            painter.drawRect(box)
+            painter.drawRect(QRectF(at(left), at(top), at(right) - at(left), at(bottom) - at(top)))
         elif self.kind == "restore":
-            painter.drawRect(box.adjusted(0, 2, -2, 0))
+            front = QRectF(
+                at(left), at(top + gap), at(right - gap) - at(left), at(bottom) - at(top + gap)
+            )
+            painter.drawRect(front)
             painter.drawPolyline(
                 [
-                    QPointF(box.left() + 2, box.top() + 2),
-                    QPointF(box.left() + 2, box.top()),
-                    QPointF(box.right(), box.top()),
-                    QPointF(box.right(), box.bottom() - 2),
-                    QPointF(box.right() - 2, box.bottom() - 2),
+                    QPointF(at(left + gap), at(top + gap)),
+                    QPointF(at(left + gap), at(top)),
+                    QPointF(at(right), at(top)),
+                    QPointF(at(right), at(bottom - gap)),
+                    QPointF(at(right - gap), at(bottom - gap)),
                 ]
             )
         else:
-            painter.drawLine(box.topLeft(), box.bottomRight())
-            painter.drawLine(box.topRight(), box.bottomLeft())
-        painter.end()
+            # A smoothed diagonal looks lighter than a straight line of the same width.
+            pen.setWidthF(line * _DIAGONAL_WEIGHT / dpr)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(at(left), at(top)), QPointF(at(right), at(bottom)))
+            painter.drawLine(QPointF(at(right), at(top)), QPointF(at(left), at(bottom)))
 
 
 class TitleBar(QWidget):

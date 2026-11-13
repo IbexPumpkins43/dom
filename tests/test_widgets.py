@@ -52,7 +52,7 @@ from dom.ui.theme import (
     theme_for,
     tinted,
 )
-from dom.ui.titlebar import TitleBar, edges_at
+from dom.ui.titlebar import CaptionButton, TitleBar, edges_at
 from dom.ui.widgets import (
     SIDEBAR_COMPACT_WIDTH,
     SIDEBAR_WIDTH,
@@ -473,3 +473,20 @@ def test_profile_menu_opens_above_the_button(qt_app: QApplication) -> None:
     menu.hide()
     button.close()
     assert qt_app is not None
+
+
+@pytest.mark.parametrize("kind", ["minimize", "maximize"])
+def test_caption_symbols_are_sharp(qt_app: QApplication, kind: str) -> None:
+    # Straight lines must cover whole pixels in the full colour, not two rows at half strength.
+    button = CaptionButton(kind, BRASA)
+    button.show()
+    image = button.grab().toImage()
+    background = image.pixelColor(0, 0)
+    drawn = {
+        image.pixelColor(x, y).name()
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y) != background
+    }
+    assert drawn == {QColor(qt_app.palette().color(QPalette.ColorRole.WindowText)).name()}
+    button.close()
